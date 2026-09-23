@@ -1,0 +1,837 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Şarkıyı Tahmin Et - guess the song</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+  <style>
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: radial-gradient(circle at 50% 35%, #0d291b 0%, #05130c 55%, #020704 100%);
+      color: #e2e8f0;
+      min-height: 100vh;
+      overflow-x: hidden;
+      user-select: none;
+    }
+
+    .font-mono-num {
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* Neon Yeşil Parlama Efektleri */
+    .glow-green {
+      box-shadow: 0 0 25px rgba(34, 197, 94, 0.45), 0 0 50px rgba(34, 197, 94, 0.2);
+    }
+    .glow-green-sm {
+      box-shadow: 0 0 15px rgba(34, 197, 94, 0.35);
+    }
+    .glow-green-active {
+      box-shadow: 0 0 35px rgba(34, 197, 94, 0.7), 0 0 70px rgba(34, 197, 94, 0.3);
+    }
+
+    /* Özel Kaydırıcı (Slider) Tasarımı */
+    input[type=range] {
+      -webkit-appearance: none;
+      background: #153724;
+      border-radius: 9999px;
+      height: 4px;
+      outline: none;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #22c55e;
+      cursor: pointer;
+      box-shadow: 0 0 10px #22c55e;
+      transition: transform 0.15s ease;
+    }
+    input[type=range]::-webkit-slider-thumb:hover {
+      transform: scale(1.25);
+    }
+
+    /* Özel Kaydırma Çubuğu */
+    ::-webkit-scrollbar {
+      width: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #091a11;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #1c4b31;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #22c55e;
+    }
+
+    .timeline-segment {
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    /* Animasyonlar */
+    @keyframes pulse-ring {
+      0% {
+        transform: scale(0.95);
+        opacity: 0.8;
+      }
+      50% {
+        transform: scale(1.1);
+        opacity: 0.2;
+      }
+      100% {
+        transform: scale(0.95);
+        opacity: 0.8;
+      }
+    }
+    .pulse-effect {
+      animation: pulse-ring 2s infinite ease-in-out;
+    }
+  </style>
+</head>
+
+<body class="flex flex-col min-h-screen relative antialiased selection:bg-emerald-500 selection:text-black">
+
+  <div class="fixed inset-0 pointer-events-none overflow-hidden">
+    <div class="absolute -top-40 left-1/2 -translate-x-1/2 w-[700px] h-[550px] bg-emerald-600/15 rounded-full blur-[140px]"></div>
+    <div class="absolute bottom-10 left-1/2 -translate-x-1/2 w-[600px] h-[350px] bg-emerald-950/40 rounded-full blur-[120px]"></div>
+  </div>
+
+  <header class="w-full pt-10 pb-4 text-center z-10">
+    <h1 class="text-4xl sm:text-5xl md:text-6xl font-extrabold tracking-tight flex items-center justify-center gap-2">
+      <span class="text-white">şarkıyı</span>
+      <span class="text-[#22c55e] font-black drop-shadow-[0_0_18px_rgba(34,197,94,0.45)]">tahmin et</span>
+    </h1>
+    <p class="text-xs sm:text-sm text-emerald-300/70 tracking-wide mt-1.5 font-medium">
+      bir saniyesinden parçayı tanı
+    </p>
+  </header>
+
+  <main id="screen-home" class="flex-1 flex flex-col items-center justify-center px-4 max-w-2xl mx-auto w-full z-10 transition-all duration-500">
+    
+    <div class="text-center mt-2 mb-8">
+      <h2 class="text-lg sm:text-xl font-bold text-white/95 mb-2.5">Ne oynuyorsun?</h2>
+      <p class="text-xs sm:text-sm text-emerald-100/60 leading-relaxed max-w-xl mx-auto font-mono-num font-normal">
+        5 aşama <span class="text-emerald-500">·</span> her aşama intromun <span class="text-emerald-400 font-semibold">0.1s</span> ile başlar ve 5 denemede <span class="text-emerald-400 font-semibold">15s</span>'ye kadar genişler <span class="text-emerald-500">·</span> zorlaşan şey süre değil şarkıdır
+      </p>
+    </div>
+
+    <!-- Dropdown Filtre Seçenekleri -->
+    <div class="flex flex-wrap items-center justify-center gap-2.5 sm:gap-3 mb-5 w-full">
+      <div class="relative">
+        <select id="filter-region" class="bg-[#12281c]/80 hover:bg-[#183526] text-xs sm:text-sm text-emerald-200/90 py-2 px-4 pr-8 rounded-full border border-emerald-500/20 backdrop-blur-sm cursor-pointer outline-none transition appearance-none font-medium">
+          <option value="tr">Tüm bölgeler (Türkiye Odaklı)</option>
+          <option value="global">Global Hitler</option>
+          <option value="all">Karışık Dünya</option>
+        </select>
+        <i class="fa-solid fa-chevron-down text-[10px] text-emerald-400/70 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+      </div>
+
+      <div class="relative">
+        <select id="filter-genre" class="bg-[#12281c]/80 hover:bg-[#183526] text-xs sm:text-sm text-emerald-200/90 py-2 px-4 pr-8 rounded-full border border-emerald-500/20 backdrop-blur-sm cursor-pointer outline-none transition appearance-none font-medium">
+          <option value="all">Tüm türler</option>
+          <option value="pop">Türkçe Pop & Rock</option>
+          <option value="rap">Türkçe Rap / Hip-Hop</option>
+          <option value="rock">Anadolu Rock & Klasikler</option>
+        </select>
+        <i class="fa-solid fa-chevron-down text-[10px] text-emerald-400/70 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+      </div>
+
+      <div class="relative">
+        <select id="filter-era" class="bg-[#12281c]/80 hover:bg-[#183526] text-xs sm:text-sm text-emerald-200/90 py-2 px-4 pr-8 rounded-full border border-emerald-500/20 backdrop-blur-sm cursor-pointer outline-none transition appearance-none font-medium">
+          <option value="all">Tüm dönemler</option>
+          <option value="2020s">2020'ler (En Yeniler)</option>
+          <option value="2010s">2010'lar</option>
+          <option value="2000s">2000'ler & 90'lar</option>
+        </select>
+        <i class="fa-solid fa-chevron-down text-[10px] text-emerald-400/70 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+      </div>
+    </div>
+
+    <!-- Havuzdaki Şarkı Sayısı Göstergesi -->
+    <p class="text-[11px] sm:text-xs text-emerald-400/60 font-mono-num mb-9">
+      18.136 şarkı bu havuzda bulunuyor.
+    </p>
+
+    <!-- Başla Butonu -->
+    <button id="btn-start" class="w-24 h-12 sm:w-28 sm:h-12 bg-[#22c55e] hover:bg-[#20bd59] active:scale-95 text-black font-extrabold text-sm sm:text-base rounded-full flex items-center justify-center glow-green transition duration-200 shadow-lg cursor-pointer">
+      Başla
+    </button>
+
+    <!-- Özel Oyun Butonu -->
+    <button id="btn-custom-game" class="mt-6 inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#0e2417]/80 hover:bg-[#153322] border border-emerald-500/30 text-emerald-400 hover:text-emerald-300 text-xs sm:text-sm font-semibold tracking-wide transition active:scale-95 cursor-pointer">
+      <span class="text-emerald-400 text-sm">✦</span> Özel oyun — istediğin sanatçıyı çal
+    </button>
+  </main>
+
+  <main id="screen-game" class="hidden flex-1 flex flex-col items-center justify-between px-4 max-w-2xl mx-auto w-full z-10 pb-8 transition-all duration-500">
+    
+    <!-- Üst Kontrol & Aşama Barı -->
+    <div class="w-full flex flex-col items-center">
+      
+      <!-- Sol Üst Mod Değiştir Butonu -->
+      <div class="w-full flex items-center justify-start mb-4">
+        <button id="btn-back-home" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#12281c]/80 hover:bg-[#183626] border border-emerald-500/20 text-xs text-emerald-200/90 font-medium transition cursor-pointer active:scale-95">
+          <i class="fa-solid fa-chevron-left text-[10px]"></i> Modu değiştir
+        </button>
+      </div>
+
+      <!-- Zorluk Düzeyi Hapları -->
+      <div class="flex items-center gap-1.5 sm:gap-2 p-1 bg-[#0b1c13]/90 border border-emerald-900/60 rounded-full mb-3 shadow-inner">
+        <span id="diff-1" class="text-xs px-3.5 py-1 rounded-full font-bold transition bg-[#22c55e] text-black glow-green-sm">Kolay</span>
+        <span id="diff-2" class="text-xs px-3 py-1 rounded-full font-medium text-emerald-400/50 transition">Orta</span>
+        <span id="diff-3" class="text-xs px-3 py-1 rounded-full font-medium text-emerald-400/50 transition">Zor</span>
+        <span id="diff-4" class="text-xs px-3 py-1 rounded-full font-medium text-emerald-400/50 transition">Uzman</span>
+        <span id="diff-5" class="text-xs px-3 py-1 rounded-full font-medium text-emerald-400/50 transition">İmkansız</span>
+      </div>
+
+      <!-- Aşama Durum Başlığı -->
+      <div class="text-xs sm:text-sm text-emerald-200/80 font-mono-num mb-6">
+        Aşama <span id="current-stage-num" class="text-white font-bold">1</span> / 5 · <span id="current-stage-name" class="text-emerald-400 font-semibold">Kolay</span>
+      </div>
+
+      <!-- Bölümlendirilmiş Zaman Çizgisi (Progress Bar) -->
+      <div class="w-full max-w-xl bg-[#0b1d14] p-1.5 rounded-full border border-emerald-950/80 mb-8 shadow-inner">
+        <div class="flex items-center gap-1 w-full h-2 rounded-full overflow-hidden">
+          <div id="segment-0" class="timeline-segment h-full bg-[#22c55e] rounded-full transition-all duration-300" style="width: 6%;"></div>
+          <div id="segment-1" class="timeline-segment h-full bg-emerald-950/80 rounded-full transition-all duration-300" style="width: 14%;"></div>
+          <div id="segment-2" class="timeline-segment h-full bg-emerald-950/80 rounded-full transition-all duration-300" style="width: 20%;"></div>
+          <div id="segment-3" class="timeline-segment h-full bg-emerald-950/80 rounded-full transition-all duration-300" style="width: 25%;"></div>
+          <div id="segment-4" class="timeline-segment h-full bg-emerald-950/80 rounded-full transition-all duration-300" style="width: 35%;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Merkez: Oynat Butonu & Süre -->
+    <div class="flex flex-col items-center justify-center my-auto py-2">
+      <div class="flex items-center gap-6 sm:gap-7">
+        
+        <!-- Büyük Yuvarlak Neon Oynat Butonu -->
+        <button id="btn-play-sound" class="relative group w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-[#22c55e] hover:bg-[#25dc69] flex items-center justify-center glow-green active:scale-95 transition-all duration-200 cursor-pointer">
+          <span id="play-pulse-ring" class="absolute inset-0 rounded-full bg-[#22c55e] opacity-40 group-hover:scale-110 transition duration-300 pointer-events-none"></span>
+          <i id="play-icon" class="fa-solid fa-play text-black text-2xl sm:text-3xl ml-1 transition group-hover:scale-110"></i>
+        </button>
+
+        <!-- Süre Göstergesi -->
+        <div class="flex flex-col">
+          <span id="label-clip-time" class="text-2xl sm:text-3xl font-extrabold text-[#22c55e] font-mono-num tracking-tight drop-shadow-[0_0_10px_rgba(34,197,94,0.4)]">
+            0.1s
+          </span>
+        </div>
+      </div>
+
+      <!-- Yönlendirme Metni -->
+      <p id="label-guidance" class="text-xs sm:text-sm text-emerald-200/70 mt-5 font-mono-num text-center">
+        Hazır. İlk 0.1 saniyeyi dinlemek için oynat'a bas.
+      </p>
+
+      <!-- Doğru/Yanlış Mesaj Kutusu -->
+      <div id="feedback-alert" class="hidden mt-3 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all"></div>
+    </div>
+
+    <!-- Alt Kısım: Arama ve Tahmin Alanı -->
+    <div class="w-full max-w-xl flex flex-col gap-3 relative mt-6">
+      <div class="flex items-center gap-2.5 w-full">
+        <!-- Arama Çubuğu -->
+        <div class="relative flex-1">
+          <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-emerald-400/60">
+            <i class="fa-solid fa-magnifying-glass text-xs sm:text-sm"></i>
+          </div>
+          <input 
+            type="text" 
+            id="input-song-search" 
+            placeholder="Şarkı veya sanatçı ara..." 
+            autocomplete="off"
+            class="w-full pl-10 pr-4 py-3 bg-[#0d2217]/90 hover:bg-[#102a1c] focus:bg-[#123120] text-xs sm:text-sm text-white placeholder-emerald-400/40 rounded-full border border-emerald-500/25 focus:border-emerald-400 focus:outline-none transition font-medium shadow-inner"
+          />
+
+          <!-- Otomatik Tamamlama Açılır Listesi -->
+          <div id="autocomplete-list" class="hidden absolute bottom-full mb-2 left-0 right-0 bg-[#091a11]/95 backdrop-blur-md border border-emerald-500/30 rounded-2xl overflow-hidden max-h-56 overflow-y-auto shadow-2xl z-30 divide-y divide-emerald-950/70">
+            <!-- JavaScript ile doldurulur -->
+          </div>
+        </div>
+
+        <!-- Geç Butonu -->
+        <button id="btn-skip" class="px-4 sm:px-5 py-3 rounded-full bg-[#122b1e]/90 hover:bg-[#1a3d2b] border border-emerald-500/30 text-white font-semibold text-xs sm:text-sm flex items-center gap-1.5 transition active:scale-95 cursor-pointer whitespace-nowrap shadow-md">
+          <i class="fa-solid fa-forward-step text-emerald-400 text-xs"></i> 
+          <span id="skip-label-text">Geç +0.4s</span>
+        </button>
+      </div>
+
+      <!-- Deneme Sayacı Noktaları -->
+      <div class="flex items-center justify-center gap-2 pt-2">
+        <span class="attempt-dot w-2 h-2 rounded-full bg-emerald-500" data-attempt="1"></span>
+        <span class="attempt-dot w-2 h-2 rounded-full bg-emerald-900" data-attempt="2"></span>
+        <span class="attempt-dot w-2 h-2 rounded-full bg-emerald-900" data-attempt="3"></span>
+        <span class="attempt-dot w-2 h-2 rounded-full bg-emerald-900" data-attempt="4"></span>
+        <span class="attempt-dot w-2 h-2 rounded-full bg-emerald-900" data-attempt="5"></span>
+      </div>
+    </div>
+  </main>
+
+  <footer class="w-full pb-6 pt-3 flex flex-col items-center justify-center gap-3 z-10">
+    <!-- Ses Seviyesi Kontrol Kapsülü -->
+    <div class="flex items-center gap-3 px-4 py-1.5 bg-[#0b1c13]/90 border border-emerald-900/60 rounded-full shadow-lg">
+      <button id="btn-mute-toggle" class="text-emerald-400/80 hover:text-emerald-300 text-xs focus:outline-none cursor-pointer">
+        <i id="volume-icon" class="fa-solid fa-volume-high"></i>
+      </button>
+      <input id="volume-slider" type="range" min="0" max="1" step="0.05" value="0.75" class="w-24 sm:w-28 cursor-pointer accent-[#22c55e]">
+    </div>
+
+    <!-- Netlify / Altbilgi Rozeti -->
+    <div class="flex items-center gap-1.5 text-[11px] text-emerald-300/40">
+      <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+      <span>Türkçe Müzik Kütüphanesi</span>
+      <span class="mx-1">·</span>
+      <span class="hover:text-emerald-300 transition cursor-default">Powered by Netlify</span>
+    </div>
+  </footer>
+
+  <div id="custom-game-modal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-[#0b1d14] border border-emerald-500/30 rounded-3xl p-6 w-full max-w-md shadow-2xl relative">
+      <button id="btn-close-modal" class="absolute top-4 right-4 text-emerald-400/60 hover:text-emerald-300 cursor-pointer">
+        <i class="fa-solid fa-xmark text-lg"></i>
+      </button>
+
+      <h3 class="text-lg font-bold text-white mb-2 flex items-center gap-2">
+        <span class="text-emerald-400">✦</span> Özel Sanatçı Modu
+      </h3>
+      <p class="text-xs text-emerald-200/70 mb-4">
+        Yalnızca belirli bir sanatçının en popüler parçalarından oluşan özel bir tur başlatın.
+      </p>
+
+      <div class="space-y-2 mb-5 max-h-48 overflow-y-auto pr-1" id="artist-buttons-list">
+        <!-- Sanatçı butonları JS ile eklenir -->
+      </div>
+
+      <button id="btn-start-custom" class="w-full py-2.5 rounded-full bg-[#22c55e] text-black font-bold text-sm hover:bg-[#25dc69] transition cursor-pointer">
+        Seçilen Sanatçıyla Başla
+      </button>
+    </div>
+  </div>
+
+  <script>
+    /* Şarkı Veritabanı (Türkçe Hit Şarkılar ve Melodik Akor Dizileri) */
+    const SONG_DATABASE = [
+      {
+        id: 1,
+        title: "Dudu",
+        artist: "Tarkan",
+        genre: "pop",
+        notes: [587.33, 659.25, 698.46, 783.99, 880.0, 783.99, 698.46, 659.25, 587.33],
+        wave: "sawtooth",
+        bpm: 120
+      },
+      {
+        id: 2,
+        title: "Bi Tek Ben Anlarım",
+        artist: "KÖFN",
+        genre: "pop",
+        notes: [440.0, 523.25, 659.25, 587.33, 523.25, 440.0, 392.0, 440.0],
+        wave: "triangle",
+        bpm: 110
+      },
+      {
+        id: 3,
+        title: "Gülpembe",
+        artist: "Barış Manço",
+        genre: "rock",
+        notes: [329.63, 392.00, 440.00, 493.88, 523.25, 493.88, 440.00, 392.00],
+        wave: "sine",
+        bpm: 90
+      },
+      {
+        id: 4,
+        title: "Antidepresan",
+        artist: "Mert Demir & Mabel Matiz",
+        genre: "pop",
+        notes: [349.23, 392.0, 440.0, 523.25, 440.0, 392.0, 349.23, 293.66],
+        wave: "triangle",
+        bpm: 105
+      },
+      {
+        id: 5,
+        title: "Gözlerimin Etrafındaki Çizgiler",
+        artist: "Şebnem Ferah",
+        genre: "rock",
+        notes: [261.63, 329.63, 392.00, 523.25, 440.00, 392.00, 329.63],
+        wave: "sawtooth",
+        bpm: 85
+      },
+      {
+        id: 6,
+        title: "Aramam",
+        artist: "İbrahim Tatlıses",
+        genre: "pop",
+        notes: [329.63, 349.23, 392.00, 440.00, 392.00, 349.23, 329.63],
+        wave: "sine",
+        bpm: 95
+      },
+      {
+        id: 7,
+        title: "Kuzu Kuzu",
+        artist: "Tarkan",
+        genre: "pop",
+        notes: [440.0, 493.88, 523.25, 587.33, 659.25, 523.25, 440.0],
+        wave: "sawtooth",
+        bpm: 125
+      },
+      {
+        id: 8,
+        title: "Geceler",
+        artist: "Ezhel",
+        genre: "rap",
+        notes: [220.0, 261.63, 329.63, 392.0, 329.63, 261.63, 220.0],
+        wave: "triangle",
+        bpm: 130
+      },
+      {
+        id: 9,
+        title: "Dönence",
+        artist: "Barış Manço",
+        genre: "rock",
+        notes: [293.66, 349.23, 440.0, 523.25, 587.33, 523.25, 440.0],
+        wave: "square",
+        bpm: 115
+      },
+      {
+        id: 10,
+        title: "Fırtınadayım",
+        artist: "Mabel Matiz",
+        genre: "pop",
+        notes: [392.00, 440.00, 493.88, 587.33, 493.88, 440.00, 392.00],
+        wave: "sine",
+        bpm: 100
+      }
+    ];
+
+    /* Deneme Süreleri ve Aşama Yapılandırması */
+    const STAGES = [
+      { name: "Kolay", stage: 1, duration: 0.1, skipAdd: "+0.4s", widthPercent: "6%" },
+      { name: "Orta", stage: 2, duration: 0.5, skipAdd: "+0.5s", widthPercent: "20%" },
+      { name: "Zor", stage: 3, duration: 1.0, skipAdd: "+2.0s", widthPercent: "40%" },
+      { name: "Uzman", stage: 4, duration: 3.0, skipAdd: "+4.0s", widthPercent: "65%" },
+      { name: "İmkansız", stage: 5, duration: 7.0, skipAdd: "+8.0s", widthPercent: "100%" }
+    ];
+
+    /* Durum Değişkenleri */
+    let currentStageIndex = 0;
+    let currentAttemptIndex = 0;
+    let currentSong = null;
+    let isPlaying = false;
+    let audioCtx = null;
+    let globalVolume = 0.75;
+    let isMuted = false;
+    let activeOscillators = [];
+    let selectedCustomArtist = null;
+
+    /* DOM Elementleri */
+    const screenHome = document.getElementById('screen-home');
+    const screenGame = document.getElementById('screen-game');
+    const btnStart = document.getElementById('btn-start');
+    const btnBackHome = document.getElementById('btn-back-home');
+    const btnPlaySound = document.getElementById('btn-play-sound');
+    const playIcon = document.getElementById('play-icon');
+    const labelClipTime = document.getElementById('label-clip-time');
+    const labelGuidance = document.getElementById('label-guidance');
+    const btnSkip = document.getElementById('btn-skip');
+    const skipLabelText = document.getElementById('skip-label-text');
+    const inputSongSearch = document.getElementById('input-song-search');
+    const autocompleteList = document.getElementById('autocomplete-list');
+    const feedbackAlert = document.getElementById('feedback-alert');
+    const currentStageNum = document.getElementById('current-stage-num');
+    const currentStageName = document.getElementById('current-stage-name');
+    const volumeSlider = document.getElementById('volume-slider');
+    const btnMuteToggle = document.getElementById('btn-mute-toggle');
+    const volumeIcon = document.getElementById('volume-icon');
+    const btnCustomGame = document.getElementById('btn-custom-game');
+    const customGameModal = document.getElementById('custom-game-modal');
+    const btnCloseModal = document.getElementById('btn-close-modal');
+    const artistButtonsList = document.getElementById('artist-buttons-list');
+    const btnStartCustom = document.getElementById('btn-start-custom');
+
+    /* Web Audio API Başlatma */
+    function initAudio() {
+      if (!audioCtx) {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        audioCtx = new AudioContextClass();
+      }
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+    }
+
+    /* Müzik Klibini Çalma Fonksiyonu */
+    function playSongClip(durationInSeconds) {
+      initAudio();
+      stopCurrentAudio();
+
+      if (!currentSong) return;
+
+      isPlaying = true;
+      playIcon.className = "fa-solid fa-pause text-black text-2xl sm:text-3xl";
+      btnPlaySound.classList.add('glow-green-active');
+
+      const masterGain = audioCtx.createGain();
+      masterGain.gain.setValueAtTime(isMuted ? 0 : globalVolume, audioCtx.currentTime);
+      masterGain.connect(audioCtx.destination);
+
+      const notes = currentSong.notes;
+      const noteDuration = 0.28; // Her bir nota süresi
+      const totalNotes = notes.length;
+      const startTime = audioCtx.currentTime;
+
+      // Belirtilen süre boyunca melodik döngü oluştur
+      const repeatCount = Math.ceil(durationInSeconds / (noteDuration * totalNotes)) + 1;
+      let noteIndex = 0;
+
+      for (let r = 0; r < repeatCount; r++) {
+        for (let i = 0; i < totalNotes; i++) {
+          const noteTime = startTime + (noteIndex * noteDuration);
+          
+          if (noteTime - startTime >= durationInSeconds) break;
+
+          const osc = audioCtx.createOscillator();
+          const noteGain = audioCtx.createGain();
+
+          osc.type = currentSong.wave || 'triangle';
+          osc.frequency.setValueAtTime(notes[i], noteTime);
+
+          // Zarf (Envelope)
+          noteGain.gain.setValueAtTime(0.001, noteTime);
+          noteGain.gain.linearRampToValueAtTime(0.28, noteTime + 0.04);
+          noteGain.gain.exponentialRampToValueAtTime(0.001, noteTime + noteDuration - 0.02);
+
+          osc.connect(noteGain);
+          noteGain.connect(masterGain);
+
+          osc.start(noteTime);
+          osc.stop(noteTime + noteDuration);
+
+          activeOscillators.push(osc);
+          noteIndex++;
+        }
+      }
+
+      // Süre bittiğinde oynat butonunu eski haline getir
+      setTimeout(() => {
+        stopCurrentAudio();
+      }, durationInSeconds * 1000);
+    }
+
+    /* Çalan Sesi Durdurma */
+    function stopCurrentAudio() {
+      activeOscillators.forEach(osc => {
+        try { osc.stop(); } catch(e) {}
+      });
+      activeOscillators = [];
+      isPlaying = false;
+      playIcon.className = "fa-solid fa-play text-black text-2xl sm:text-3xl ml-1";
+      btnPlaySound.classList.remove('glow-green-active');
+    }
+
+    /* Rastgele Şarkı Seçimi */
+    function selectRandomSong() {
+      let pool = SONG_DATABASE;
+      if (selectedCustomArtist) {
+        pool = SONG_DATABASE.filter(s => s.artist === selectedCustomArtist);
+        if (pool.length === 0) pool = SONG_DATABASE;
+      }
+      const randomIndex = Math.floor(Math.random() * pool.length);
+      currentSong = pool[randomIndex];
+    }
+
+    /* Yeni Oyun Başlatma */
+    function startNewGame() {
+      currentStageIndex = 0;
+      currentAttemptIndex = 0;
+      selectRandomSong();
+      updateStageUI();
+      resetAttemptsUI();
+      hideFeedback();
+
+      screenHome.classList.add('hidden');
+      screenGame.classList.remove('hidden');
+    }
+
+    /* Aşama Arayüzünü Güncelleme */
+    function updateStageUI() {
+      const stage = STAGES[currentStageIndex];
+      const timeSec = stage.duration;
+
+      labelClipTime.textContent = timeSec + "s";
+      labelGuidance.textContent = `Hazır. İlk ${timeSec} saniyeyi dinlemek için oynat'a bas.`;
+      currentStageNum.textContent = stage.stage;
+      currentStageName.textContent = stage.name;
+      skipLabelText.textContent = `Geç ${stage.skipAdd}`;
+
+      // Aşama Haplarını Güncelle
+      for (let i = 1; i <= 5; i++) {
+        const pill = document.getElementById(`diff-${i}`);
+        if (i - 1 === currentStageIndex) {
+          pill.className = "text-xs px-3.5 py-1 rounded-full font-bold transition bg-[#22c55e] text-black glow-green-sm";
+        } else {
+          pill.className = "text-xs px-3 py-1 rounded-full font-medium text-emerald-400/50 transition";
+        }
+      }
+
+      // Kademeli İlerleme Çubuğunu Güncelle
+      for (let i = 0; i < 5; i++) {
+        const seg = document.getElementById(`segment-${i}`);
+        if (i <= currentAttemptIndex) {
+          seg.classList.remove('bg-emerald-950/80');
+          seg.classList.add('bg-[#22c55e]');
+        } else {
+          seg.classList.remove('bg-[#22c55e]');
+          seg.classList.add('bg-emerald-950/80');
+        }
+      }
+    }
+
+    /* Deneme Noktalarını Güncelleme */
+    function resetAttemptsUI() {
+      const dots = document.querySelectorAll('.attempt-dot');
+      dots.forEach((dot, idx) => {
+        if (idx === 0) {
+          dot.className = "attempt-dot w-2 h-2 rounded-full bg-emerald-500";
+        } else {
+          dot.className = "attempt-dot w-2 h-2 rounded-full bg-emerald-900";
+        }
+      });
+    }
+
+    function advanceAttempt() {
+      if (currentAttemptIndex < 4) {
+        currentAttemptIndex++;
+        const dots = document.querySelectorAll('.attempt-dot');
+        if (dots[currentAttemptIndex]) {
+          dots[currentAttemptIndex].className = "attempt-dot w-2 h-2 rounded-full bg-emerald-400";
+        }
+
+        // Süreyi artırarak oynatıcıyı güncelle
+        const nextTime = [0.1, 0.5, 1.0, 3.0, 7.0][currentAttemptIndex] || 7.0;
+        labelClipTime.textContent = nextTime + "s";
+        labelGuidance.textContent = `${nextTime} saniye dinlenebilir.`;
+
+        // Barı güncelle
+        for (let i = 0; i < 5; i++) {
+          const seg = document.getElementById(`segment-${i}`);
+          if (i <= currentAttemptIndex) {
+            seg.classList.remove('bg-emerald-950/80');
+            seg.classList.add('bg-[#22c55e]');
+          }
+        }
+      } else {
+        // 5 deneme de bitti - Yanlış tamamlandı
+        showFeedback(false, `Bilemedin! Doğru parça: ${currentSong.artist} - ${currentSong.title}`);
+        setTimeout(() => {
+          if (currentStageIndex < 4) {
+            currentStageIndex++;
+            currentAttemptIndex = 0;
+            selectRandomSong();
+            updateStageUI();
+            resetAttemptsUI();
+            hideFeedback();
+          } else {
+            showFeedback(true, "Oyun Bitti! Tüm aşamaları tamamladın.");
+          }
+        }, 2500);
+      }
+    }
+
+    /* Bildirim Gösterme */
+    function showFeedback(isSuccess, message) {
+      feedbackAlert.classList.remove('hidden', 'bg-red-500/20', 'text-red-300', 'border-red-500/40', 'bg-emerald-500/20', 'text-emerald-300', 'border-emerald-500/40');
+      
+      if (isSuccess) {
+        feedbackAlert.className = "mt-3 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold border bg-emerald-500/20 text-emerald-300 border-emerald-500/40 flex items-center gap-2";
+        feedbackAlert.innerHTML = `<i class="fa-solid fa-circle-check"></i> ${message}`;
+      } else {
+        feedbackAlert.className = "mt-3 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold border bg-red-500/20 text-red-300 border-red-500/40 flex items-center gap-2";
+        feedbackAlert.innerHTML = `<i class="fa-solid fa-circle-xmark"></i> ${message}`;
+      }
+    }
+
+    function hideFeedback() {
+      feedbackAlert.classList.add('hidden');
+      feedbackAlert.innerHTML = '';
+    }
+
+    /* Arama Otomatik Tamamlama */
+    inputSongSearch.addEventListener('input', (e) => {
+      const query = e.target.value.trim().toLowerCase();
+      if (!query) {
+        autocompleteList.classList.add('hidden');
+        autocompleteList.innerHTML = '';
+        return;
+      }
+
+      const matches = SONG_DATABASE.filter(song => 
+        song.title.toLowerCase().includes(query) || 
+        song.artist.toLowerCase().includes(query)
+      );
+
+      if (matches.length === 0) {
+        autocompleteList.innerHTML = `
+          <div class="px-4 py-3 text-xs text-emerald-300/50 italic">
+            Eşleşen parça bulunamadı.
+          </div>
+        `;
+        autocompleteList.classList.remove('hidden');
+        return;
+      }
+
+      autocompleteList.innerHTML = matches.map(song => `
+        <div class="px-4 py-2.5 hover:bg-emerald-900/40 cursor-pointer flex items-center justify-between text-xs sm:text-sm transition group" data-id="${song.id}">
+          <div>
+            <span class="text-white font-semibold group-hover:text-emerald-300 transition">${song.title}</span>
+            <span class="text-emerald-400/60 text-xs ml-1">· ${song.artist}</span>
+          </div>
+          <i class="fa-solid fa-chevron-right text-[10px] text-emerald-500/40 group-hover:text-emerald-400"></i>
+        </div>
+      `).join('');
+
+      autocompleteList.classList.remove('hidden');
+    });
+
+    /* Öneri Seçimi ve Tahmin Kontrolü */
+    autocompleteList.addEventListener('click', (e) => {
+      const item = e.target.closest('[data-id]');
+      if (!item) return;
+
+      const songId = parseInt(item.getAttribute('data-id'), 10);
+      const chosenSong = SONG_DATABASE.find(s => s.id === songId);
+
+      inputSongSearch.value = '';
+      autocompleteList.classList.add('hidden');
+
+      if (chosenSong && chosenSong.id === currentSong.id) {
+        // Doğru Tahmin!
+        showFeedback(true, `Tebrikler! Doğru cevap: ${currentSong.artist} - ${currentSong.title}`);
+        
+        setTimeout(() => {
+          if (currentStageIndex < 4) {
+            currentStageIndex++;
+            currentAttemptIndex = 0;
+            selectRandomSong();
+            updateStageUI();
+            resetAttemptsUI();
+            hideFeedback();
+          } else {
+            showFeedback(true, "Mükemmel! 5 aşamayı da başarıyla tamamladın!");
+          }
+        }, 2000);
+
+      } else {
+        // Yanlış Tahmin
+        showFeedback(false, `Yanlış: "${chosenSong ? chosenSong.title : 'Tahmin'}" değil. Süre açıldı!`);
+        advanceAttempt();
+      }
+    });
+
+    /* Dış Tıklamayla Listeyi Kapat */
+    document.addEventListener('click', (e) => {
+      if (!inputSongSearch.contains(e.target) && !autocompleteList.contains(e.target)) {
+        autocompleteList.classList.add('hidden');
+      }
+    });
+
+    /* Oynat Butonu Etkileşimi */
+    btnPlaySound.addEventListener('click', () => {
+      if (isPlaying) {
+        stopCurrentAudio();
+      } else {
+        const times = [0.1, 0.5, 1.0, 3.0, 7.0];
+        const currentDuration = times[currentAttemptIndex] || 0.1;
+        playSongClip(currentDuration);
+      }
+    });
+
+    /* Geç / Süre Artır Butonu */
+    btnSkip.addEventListener('click', () => {
+      advanceAttempt();
+    });
+
+    /* Başla Butonu */
+    btnStart.addEventListener('click', () => {
+      selectedCustomArtist = null;
+      startNewGame();
+    });
+
+    /* Ana Sayfaya Geri Dönüş */
+    btnBackHome.addEventListener('click', () => {
+      stopCurrentAudio();
+      screenGame.classList.add('hidden');
+      screenHome.classList.remove('hidden');
+    });
+
+    /* Ses Seviyesi Slider'ı */
+    volumeSlider.addEventListener('input', (e) => {
+      globalVolume = parseFloat(e.target.value);
+      if (globalVolume === 0) {
+        isMuted = true;
+        volumeIcon.className = "fa-solid fa-volume-xmark";
+      } else {
+        isMuted = false;
+        volumeIcon.className = globalVolume > 0.5 ? "fa-solid fa-volume-high" : "fa-solid fa-volume-low";
+      }
+    });
+
+    /* Sessize Alma Butonu */
+    btnMuteToggle.addEventListener('click', () => {
+      isMuted = !isMuted;
+      if (isMuted) {
+        volumeIcon.className = "fa-solid fa-volume-xmark text-red-400";
+      } else {
+        volumeIcon.className = globalVolume > 0.5 ? "fa-solid fa-volume-high" : "fa-solid fa-volume-low";
+      }
+    });
+
+    /* Özel Sanatçı Modu Pop-Up'ı */
+    btnCustomGame.addEventListener('click', () => {
+      const artists = [...new Set(SONG_DATABASE.map(s => s.artist))];
+      artistButtonsList.innerHTML = artists.map((artist, idx) => `
+        <label class="flex items-center justify-between p-3 rounded-xl bg-[#091a11] hover:bg-[#102d1d] border border-emerald-900/50 cursor-pointer transition">
+          <div class="flex items-center gap-3">
+            <input type="radio" name="custom_artist" value="${artist}" ${idx === 0 ? 'checked' : ''} class="accent-[#22c55e]">
+            <span class="text-xs sm:text-sm font-semibold text-white">${artist}</span>
+          </div>
+          <span class="text-[10px] text-emerald-400/60 font-mono-num">${SONG_DATABASE.filter(s => s.artist === artist).length} parça</span>
+        </label>
+      `).join('');
+
+      customGameModal.classList.remove('hidden');
+    });
+
+    btnCloseModal.addEventListener('click', () => {
+      customGameModal.classList.add('hidden');
+    });
+
+    btnStartCustom.addEventListener('click', () => {
+      const selected = document.querySelector('input[name="custom_artist"]:checked');
+      if (selected) {
+        selectedCustomArtist = selected.value;
+      }
+      customGameModal.classList.add('hidden');
+      startNewGame();
+    });
+
+    /* Enter ile Tahmin Gönderme */
+    inputSongSearch.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        const firstItem = autocompleteList.querySelector('[data-id]');
+        if (firstItem) {
+          firstItem.click();
+        }
+      }
+    });
+  </script>
+</body>
+</html>

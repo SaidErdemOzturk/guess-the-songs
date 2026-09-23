@@ -1,0 +1,46 @@
+.gamePageContainer {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 2rem;
+  padding: 0 1rem 2rem 1rem;
+  z-index: 10;
+  transition: all 0.3s ease;
+}
+
+.gamePageContainer.hasSidebar {
+  max-width: 68rem;
+}
+
+.gamePageContainer.solo {
+  max-width: 42rem;
+}
+
+.gameMainArea {
+  flex: 1;
+  width: 100%;
+  max-width: 42rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+}
+
+.sidebarArea {
+  width: 320px;
+  flex-shrink: 0;
+}
+
+@media (max-width: 900px) {
+  .gamePageContainer {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .sidebarArea {
+    width: 100%;
+    max-width: 42rem;
+  }
+}
