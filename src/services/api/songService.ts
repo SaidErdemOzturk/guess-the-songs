@@ -190,4 +190,13 @@ export const songService = {
       byDifficulty,
     };
   },
+
+  /**
+   * Oyun havuzu için rastgele şarkı kümesi döner
+   */
+  async getRandomGamePool(filters?: SongFilters, count: number = 5): Promise<Song[]> {
+    const songs = await this.getSongs(filters);
+    const shuffled = [...songs].sort(() => 0.5 - Math.random());
+    return shuffled.slice(0, count);
+  },
 };

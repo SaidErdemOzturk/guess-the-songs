@@ -3,7 +3,6 @@ import type {
   DifficultyLevel,
   SpotifyTokenResponse,
   SpotifyTrack,
-  SpotifyPlaylistResponse,
   SpotifySearchResponse,
 } from '@/types';
 
@@ -58,14 +57,131 @@ export function getPlaylistIdByStage(region: 'tr' | 'global' = 'tr', stageIndex:
 // PKCE Kriptografik Yardımcıları
 function generateRandomString(length: number = 64): string {
   const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
-  const values = crypto.getRandomValues(new Uint8Array(length));
-  return Array.from(values).map((x) => possible[x % possible.length]).join('');
+  const cryptoObj = typeof window !== 'undefined' ? (window.crypto || (window as any).msCrypto) : null;
+  if (cryptoObj && cryptoObj.getRandomValues) {
+    const values = cryptoObj.getRandomValues(new Uint8Array(length));
+    return Array.from(values).map((x) => possible[x % possible.length]).join('');
+  }
+  let result = '';
+  for (let i = 0; i < length; i++) {
+    result += possible.charAt(Math.floor(Math.random() * possible.length));
+  }
+  return result;
+}
+
+/**
+ * Saf JS SHA-256 algoritması (HTTP / non-secure context fallback'i için)
+ */
+function jsSha256(ascii: string): Uint8Array {
+  function rightRotate(value: number, amount: number) {
+    return (value >>> amount) | (value << (32 - amount));
+  }
+
+  const mathPow = Math.pow;
+  const maxWord = mathPow(2, 32);
+  const words: number[] = [];
+  const asciiBitLength = ascii.length * 8;
+
+  const hash: number[] = [];
+  const k: number[] = [];
+  let primeCounter = 0;
+
+  const isPrime = (n: number) => {
+    for (let factor = 2, max = Math.sqrt(n); factor <= max; factor++) {
+      if (n % factor === 0) return false;
+    }
+    return true;
+  };
+
+  for (let candidate = 2; primeCounter < 64; candidate++) {
+    if (isPrime(candidate)) {
+      if (primeCounter < 8) {
+        hash[primeCounter] = (mathPow(candidate, 1 / 2) * maxWord) | 0;
+      }
+      k[primeCounter] = (mathPow(candidate, 1 / 3) * maxWord) | 0;
+      primeCounter++;
+    }
+  }
+
+  ascii += '\x80';
+  while ((ascii.length % 64) - 56) ascii += '\x00';
+  for (let i = 0; i < ascii.length; i++) {
+    const j = ascii.charCodeAt(i);
+    words[i >> 2] |= j << ((3 - (i % 4)) * 8);
+  }
+  words[words.length] = (asciiBitLength / maxWord) | 0;
+  words[words.length] = asciiBitLength | 0;
+
+  for (let j = 0; j < words.length;) {
+    const w = words.slice(j, (j += 16));
+    const oldHash = hash.slice(0);
+
+    for (let i = 0; i < 64; i++) {
+      const w15 = w[i - 15];
+      const w2 = w[i - 2];
+
+      const s0 = i >= 16 ? rightRotate(w15, 7) ^ rightRotate(w15, 18) ^ (w15 >>> 3) : 0;
+      const s1 = i >= 16 ? rightRotate(w2, 17) ^ rightRotate(w2, 19) ^ (w2 >>> 10) : 0;
+
+      if (i >= 16) {
+        w[i] = (w[i - 16] + s0 + w[i - 7] + s1) | 0;
+      }
+
+      const a = hash[0];
+      const e = hash[4];
+      const temp1 =
+        (hash[7] +
+          (rightRotate(e, 6) ^ rightRotate(e, 11) ^ rightRotate(e, 25)) +
+          ((e & hash[5]) ^ (~e & hash[6])) +
+          k[i] +
+          w[i]) |
+        0;
+      const temp2 =
+        ((rightRotate(a, 2) ^ rightRotate(a, 13) ^ rightRotate(a, 22)) +
+          ((a & hash[1]) ^ (a & hash[2]) ^ (hash[1] & hash[2]))) |
+        0;
+
+      hash[7] = hash[6];
+      hash[6] = hash[5];
+      hash[5] = hash[4];
+      hash[4] = (hash[3] + temp1) | 0;
+      hash[3] = hash[2];
+      hash[2] = hash[1];
+      hash[1] = hash[0];
+      hash[0] = (temp1 + temp2) | 0;
+    }
+
+    for (let i = 0; i < 8; i++) {
+      hash[i] = (hash[i] + oldHash[i]) | 0;
+    }
+  }
+
+  const result = new Uint8Array(32);
+  for (let i = 0; i < 8; i++) {
+    result[i * 4] = (hash[i] >>> 24) & 0xff;
+    result[i * 4 + 1] = (hash[i] >>> 16) & 0xff;
+    result[i * 4 + 2] = (hash[i] >>> 8) & 0xff;
+    result[i * 4 + 3] = hash[i] & 0xff;
+  }
+  return result;
 }
 
 async function sha256(plain: string): Promise<ArrayBuffer> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(plain);
-  return window.crypto.subtle.digest('SHA-256', data);
+  // Eğer HTTPS veya güvenli bağlamda ise yerel Web Crypto API'yi kullan
+  const cryptoObj = typeof window !== 'undefined' ? window.crypto : null;
+  if (cryptoObj && cryptoObj.subtle && typeof cryptoObj.subtle.digest === 'function') {
+    try {
+      const encoder = new TextEncoder();
+      const data = encoder.encode(plain);
+      return await cryptoObj.subtle.digest('SHA-256', data);
+    } catch {
+      // Hata durumunda JS fallback'e geç
+    }
+  }
+
+  // Güvensiz HTTP bağlamlarında (subtle undefined olduğunda) saf JS fallback'i:
+  const hashBytes = jsSha256(plain);
+  return hashBytes.buffer as ArrayBuffer;
 }
 
 function base64urlencode(buffer: ArrayBuffer): string {
@@ -113,6 +229,18 @@ class SpotifyService {
   }
 
   /**
+   * Dinamik Callback / Redirect URI döner.
+   * Localhost ise 127.0.0.1'e çevirir; canlı alan adında ise https://guess.saiderdemozturk.com/callback kullanır.
+   */
+  public getRedirectUri(): string {
+    if (typeof window === 'undefined') return '';
+    const origin = window.location.hostname === 'localhost'
+      ? window.location.origin.replace('localhost', '127.0.0.1')
+      : window.location.origin;
+    return `${origin}/callback`;
+  }
+
+  /**
    * Spotify PKCE akışı ile kullanıcıyı Spotify Giriş sayfasına yönlendirir.
    * Bu sayede kullanıcının kendi çalma listelerine erişim yetkisi (User Token) alınır.
    */
@@ -128,9 +256,7 @@ class SpotifyService {
     const hashed = await sha256(codeVerifier);
     const codeChallenge = base64urlencode(hashed);
 
-    // Spotify OAuth kuralı: localhost yerine 127.0.0.1 zorunludur
-    const origin = window.location.origin.replace('localhost', '127.0.0.1');
-    const redirectUri = `${origin}/callback`;
+    const redirectUri = this.getRedirectUri();
     const scope = [
       'playlist-read-private',
       'playlist-read-collaborative',
@@ -178,7 +304,7 @@ class SpotifyService {
     }
 
     try {
-      const redirectUri = 'http://127.0.0.1:5173/callback';
+      const redirectUri = this.getRedirectUri();
       const response = await fetch('https://accounts.spotify.com/api/token', {
         method: 'POST',
         headers: {
@@ -497,6 +623,7 @@ class SpotifyService {
       duration: 30, // 30 saniyelik standart kesit
       coverUrl,
       previewUrl: track.preview_url || undefined,
+      isrc: track.external_ids?.isrc,
       playCount: popularity * 10000,
     };
   }

@@ -30,9 +30,10 @@ export function useGameRound(options?: UseGameRoundOptions) {
   const [isGameOver, setIsGameOver] = useState(false);
   const [selectedCustomArtist, setSelectedCustomArtist] = useState<string | null>(null);
   const [score, setScore] = useState(0);
+  const [isGuessLocked, setIsGuessLocked] = useState(false);
 
   const currentStage: GameStage = STAGES[currentStageIndex] || STAGES[0];
-  const currentDuration: number = ATTEMPT_DURATIONS[currentAttemptIndex] || 0.1;
+  const activeDuration: number = isGuessLocked ? 8.0 : (ATTEMPT_DURATIONS[currentAttemptIndex] || 0.1);
 
   // Yeni oyun başlatma (İlk aşama olan 'Kolay' için ilgili bölgenin playlistini çeker)
   const startNewGame = useCallback(async (params: CreateGameSessionRequest) => {
@@ -42,6 +43,7 @@ export function useGameRound(options?: UseGameRoundOptions) {
     setPlaybackRatio(0);
     setFeedback(null);
     setIsGameOver(false);
+    setIsGuessLocked(false);
     setCurrentStageIndex(0);
     setCurrentAttemptIndex(0);
     setScore(0);
@@ -54,6 +56,7 @@ export function useGameRound(options?: UseGameRoundOptions) {
     const initialSong = await songService.getRandomSongForStage(chosenRegion, 0);
     setSongsPool([initialSong]);
     setCurrentSong(initialSong);
+    webAudioService.preloadSong(initialSong);
 
     await gameService.createSession(params);
   }, []);
@@ -74,10 +77,10 @@ export function useGameRound(options?: UseGameRoundOptions) {
 
       webAudioService.playSongClip(
         currentSong,
-        currentDuration,
+        activeDuration,
         () => {
           setIsPlaying(false);
-          setPlaybackSeconds(currentDuration);
+          setPlaybackSeconds(activeDuration);
           setPlaybackRatio(1);
           setTimeout(() => {
             setPlaybackSeconds(0);
@@ -90,10 +93,12 @@ export function useGameRound(options?: UseGameRoundOptions) {
         }
       );
     }
-  }, [currentSong, currentDuration, isPlaying]);
+  }, [currentSong, activeDuration, isPlaying]);
 
   // Yanlış tahmin veya 'Geç' basıldığında denemeyi ilerletme
   const advanceAttempt = useCallback(() => {
+    if (isGuessLocked) return;
+
     webAudioService.stopCurrentAudio();
     setIsPlaying(false);
     setPlaybackSeconds(0);
@@ -121,6 +126,7 @@ export function useGameRound(options?: UseGameRoundOptions) {
           // Zorluk değiştiğinde o zorluğun playlistinden şarkıyı çek
           const nextSong = await songService.getRandomSongForStage(currentRegion, nextStage);
           setCurrentSong(nextSong);
+          webAudioService.preloadSong(nextSong);
         } else {
           setIsGameOver(true);
           setFeedback({
@@ -130,12 +136,12 @@ export function useGameRound(options?: UseGameRoundOptions) {
         }
       }, 2500);
     }
-  }, [currentAttemptIndex, currentRegion, currentSong, currentStageIndex]);
+  }, [currentAttemptIndex, currentRegion, currentSong, currentStageIndex, isGuessLocked]);
 
   // Tahmin onaylama — Service isteği çalışır ve hangi sürede bildiyse ona göre puan eklenir
   const submitGuess = useCallback(
     async (chosenSong: Song) => {
-      if (!currentSong) return;
+      if (!currentSong || isGuessLocked) return;
 
       webAudioService.stopCurrentAudio();
       setIsPlaying(false);
@@ -146,7 +152,7 @@ export function useGameRound(options?: UseGameRoundOptions) {
         songId: chosenSong.id,
         stageIndex: currentStageIndex,
         attemptIndex: currentAttemptIndex,
-        duration: currentDuration,
+        duration: activeDuration,
         guessedTitle: chosenSong.title,
         userId: options?.userId || undefined,
         roomCode: options?.roomCode || undefined,
@@ -156,11 +162,13 @@ export function useGameRound(options?: UseGameRoundOptions) {
       const response = await gameService.submitGuess(request, currentSong, chosenSong.title);
 
       if (response.isCorrect) {
-        // Doğru Tahmin! Süreye göre puan eklendi
+        // Doğru Tahmin: Girişleri ve butonları kilitle
+        setIsGuessLocked(true);
+
         const earned = response.pointsEarned;
         setScore((prev) => {
           const nextScore = prev + earned;
-          options?.onScoreUpdate?.(earned, currentDuration, nextScore);
+          options?.onScoreUpdate?.(earned, activeDuration, nextScore);
           return nextScore;
         });
 
@@ -170,7 +178,7 @@ export function useGameRound(options?: UseGameRoundOptions) {
             options.roomCode,
             options.userId,
             earned,
-            currentDuration
+            activeDuration
           );
         }
 
@@ -179,7 +187,34 @@ export function useGameRound(options?: UseGameRoundOptions) {
           message: response.message,
         });
 
+        // Şarkıyı bilince otomatik olarak tekrar başlasın ve 8 saniye boyunca çalsın!
+        const VICTORY_PLAY_DURATION = 8.0;
+        setIsPlaying(true);
+        setPlaybackSeconds(0);
+        setPlaybackRatio(0);
+
+        webAudioService.playSongClip(
+          currentSong,
+          VICTORY_PLAY_DURATION,
+          () => {
+            setIsPlaying(false);
+            setPlaybackSeconds(VICTORY_PLAY_DURATION);
+            setPlaybackRatio(1);
+          },
+          (sec, ratio) => {
+            setPlaybackSeconds(sec);
+            setPlaybackRatio(ratio);
+          }
+        );
+
+        // 8 saniye çalma tamamlandıktan sonra bir sonraki aşamaya geç
         setTimeout(async () => {
+          webAudioService.stopCurrentAudio();
+          setIsPlaying(false);
+          setPlaybackSeconds(0);
+          setPlaybackRatio(0);
+          setIsGuessLocked(false);
+
           if (currentStageIndex < STAGES.length - 1) {
             const nextStage = currentStageIndex + 1;
             setCurrentStageIndex(nextStage);
@@ -189,6 +224,7 @@ export function useGameRound(options?: UseGameRoundOptions) {
             // Zorluk değiştiğinde o zorluğun playlistinden şarkıyı çek
             const nextSong = await songService.getRandomSongForStage(currentRegion, nextStage);
             setCurrentSong(nextSong);
+            webAudioService.preloadSong(nextSong);
           } else {
             setIsGameOver(true);
             setFeedback({
@@ -196,7 +232,7 @@ export function useGameRound(options?: UseGameRoundOptions) {
               message: `Mükemmel! ${STAGES.length} aşamayı da başarıyla tamamladın!`,
             });
           }
-        }, 2200);
+        }, 8500);
       } else {
         // Yanlış Tahmin
         setFeedback({
@@ -208,8 +244,9 @@ export function useGameRound(options?: UseGameRoundOptions) {
     },
     [
       currentSong,
+      isGuessLocked,
       currentAttemptIndex,
-      currentDuration,
+      activeDuration,
       currentStageIndex,
       currentRegion,
       options,
@@ -228,7 +265,7 @@ export function useGameRound(options?: UseGameRoundOptions) {
     currentStageIndex,
     currentStage,
     currentAttemptIndex,
-    currentDuration,
+    currentDuration: activeDuration,
     currentSong,
     isPlaying,
     playbackSeconds,
@@ -237,6 +274,7 @@ export function useGameRound(options?: UseGameRoundOptions) {
     isGameOver,
     score,
     selectedCustomArtist,
+    isGuessLocked,
     startNewGame,
     togglePlay,
     advanceAttempt,

@@ -53,6 +53,7 @@ export const GamePage: React.FC<GamePageProps> = ({
     playbackSeconds,
     playbackRatio,
     feedback,
+    isGuessLocked,
     startNewGame,
     togglePlay,
     advanceAttempt,
@@ -103,6 +104,7 @@ export const GamePage: React.FC<GamePageProps> = ({
           <GuessInput
             onGuess={submitGuess}
             onSkip={advanceAttempt}
+            disabled={isGuessLocked}
             skipLabel={
               getAttemptSkipAdd(currentAttemptIndex)
                 ? `Geç ${getAttemptSkipAdd(currentAttemptIndex)}`

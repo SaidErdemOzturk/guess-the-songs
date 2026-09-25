@@ -93,7 +93,7 @@ export const GuessInput: React.FC<GuessInputProps> = ({
 
           <input
             type="text"
-            placeholder="Şarkı veya sanatçı ara..."
+            placeholder={disabled ? 'Tebrikler! Doğru bildin...' : 'Şarkı veya sanatçı ara...'}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -104,12 +104,14 @@ export const GuessInput: React.FC<GuessInputProps> = ({
               paddingRight: '1rem',
               paddingTop: '0.75rem',
               paddingBottom: '0.75rem',
-              backgroundColor: 'rgba(17, 24, 39, 0.9)',
-              color: '#ffffff',
+              backgroundColor: disabled ? 'rgba(17, 24, 39, 0.4)' : 'rgba(17, 24, 39, 0.9)',
+              color: disabled ? '#6b7280' : '#ffffff',
               borderRadius: '9999px',
-              border: '1px solid rgba(255, 255, 255, 0.1)',
+              border: disabled ? '1px solid rgba(255, 255, 255, 0.05)' : '1px solid rgba(255, 255, 255, 0.1)',
               fontSize: '0.875rem',
               outline: 'none',
+              cursor: disabled ? 'not-allowed' : 'text',
+              opacity: disabled ? 0.6 : 1,
               transition: 'all 150ms ease',
             }}
           />
@@ -197,20 +199,21 @@ export const GuessInput: React.FC<GuessInputProps> = ({
           style={{
             padding: '0.75rem 1.25rem',
             borderRadius: '9999px',
-            backgroundColor: 'rgba(31, 41, 55, 0.85)',
-            border: '1px solid rgba(255, 255, 255, 0.12)',
-            color: '#ffffff',
+            backgroundColor: disabled ? 'rgba(31, 41, 55, 0.4)' : 'rgba(31, 41, 55, 0.85)',
+            border: disabled ? '1px solid rgba(255, 255, 255, 0.05)' : '1px solid rgba(255, 255, 255, 0.12)',
+            color: disabled ? '#6b7280' : '#ffffff',
             fontWeight: 600,
             fontSize: '0.8125rem',
             display: 'flex',
             alignItems: 'center',
             gap: '0.375rem',
-            cursor: 'pointer',
+            cursor: disabled ? 'not-allowed' : 'pointer',
+            opacity: disabled ? 0.5 : 1,
             whiteSpace: 'nowrap',
             transition: 'all 150ms ease',
           }}
         >
-          <i className="fa-solid fa-forward-step" style={{ color: '#818cf8', fontSize: '0.75rem' }} />
+          <i className="fa-solid fa-forward-step" style={{ color: disabled ? '#6b7280' : '#818cf8', fontSize: '0.75rem' }} />
           <span>{skipLabel}</span>
         </button>
       </div>

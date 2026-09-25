@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Spotify Yetkilendiriliyor...</title>
+    <script>
+      // Spotify'dan gelen ?code=... ve ?state=... parametrelerini koruyarak uygulamayı açar
+      var search = window.location.search || '';
+      window.location.replace('/' + search);
+    </script>
+  </head>
+  <body style="background-color: #0b0f19; color: #ffffff; display: flex; align-items: center; justify-content: center; height: 100vh; font-family: sans-serif;">
+    <div style="text-align: center;">
+      <p style="font-size: 1.1rem; color: #818cf8; margin-bottom: 0.5rem;">Giriş tamamlanıyor...</p>
+      <p style="font-size: 0.85rem; color: #9ca3af;">Lütfen bekleyin, yönlendiriliyorsunuz.</p>
+    </div>
+  </body>
+</html>
