@@ -3,7 +3,7 @@ import type { EraFilter, GenreFilter, RegionFilter, Song } from './song';
 export interface GameStage {
   stage: number;
   name: string;
-  duration: number; // saniye (örn: 0.1, 0.5, 1.0, 3.0, 7.0)
+  duration: number; // saniye (örn: 0.1, 0.5, 2.0, 8.0)
   skipAdd: string; // "+0.4s", vb.
   widthPercent: string;
 }
@@ -32,7 +32,7 @@ export interface GuessRequest {
   songId: number;
   stageIndex: number;
   attemptIndex: number;
-  duration: number; // Hangi sürede bilindiği (0.1, 0.5, 1.0, 3.0, 7.0)
+  duration: number; // Hangi sürede bilindiği (0.1, 0.5, 2.0, 8.0)
   guessedTitle: string;
   userId?: string;
   roomCode?: string;

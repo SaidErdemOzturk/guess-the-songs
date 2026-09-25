@@ -1,4 +1,5 @@
 import React from 'react';
+import { ATTEMPT_DURATIONS } from '@/constants/game';
 
 interface AttemptDotsProps {
   currentAttemptIndex: number;
@@ -15,7 +16,7 @@ export const AttemptDots: React.FC<AttemptDotsProps> = ({ currentAttemptIndex })
         paddingTop: '0.5rem',
       }}
     >
-      {[0, 1, 2, 3, 4].map((idx) => {
+      {ATTEMPT_DURATIONS.map((_, idx) => {
         const isReached = idx <= currentAttemptIndex;
         return (
           <span

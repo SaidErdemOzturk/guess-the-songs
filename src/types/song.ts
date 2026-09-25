@@ -1,4 +1,4 @@
-export type RegionFilter = 'tr' | 'global' | 'all';
+export type RegionFilter = 'tr' | 'global';
 export type GenreFilter = 'all' | 'pop' | 'rap' | 'rock' | 'electronic' | 'indie';
 export type EraFilter = 'all' | '2020s' | '2010s' | '2000s' | '90s';
 export type DifficultyLevel = 'easy' | 'medium' | 'hard' | 'expert' | 'impossible';

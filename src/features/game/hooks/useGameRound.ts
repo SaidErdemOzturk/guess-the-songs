@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ATTEMPT_DURATIONS, STAGES } from '@/constants/game';
 import { gameService } from '@/services/api/gameService';
 import { roomService } from '@/services/api/roomService';
+import { songService } from '@/services/api/songService';
 import { webAudioService } from '@/services/audio/webAudioService';
 import type { CreateGameSessionRequest, GameStage, GuessRequest, Song } from '@/types';
 
@@ -17,6 +18,7 @@ export interface UseGameRoundOptions {
 }
 
 export function useGameRound(options?: UseGameRoundOptions) {
+  const [currentRegion, setCurrentRegion] = useState<'tr' | 'global'>('tr');
   const [currentStageIndex, setCurrentStageIndex] = useState(0);
   const [currentAttemptIndex, setCurrentAttemptIndex] = useState(0);
   const [songsPool, setSongsPool] = useState<Song[]>([]);
@@ -32,7 +34,7 @@ export function useGameRound(options?: UseGameRoundOptions) {
   const currentStage: GameStage = STAGES[currentStageIndex] || STAGES[0];
   const currentDuration: number = ATTEMPT_DURATIONS[currentAttemptIndex] || 0.1;
 
-  // Yeni oyun başlatma (Bölge, tür ve dönem servise iletilir, veriler backend'den gelir)
+  // Yeni oyun başlatma (İlk aşama olan 'Kolay' için ilgili bölgenin playlistini çeker)
   const startNewGame = useCallback(async (params: CreateGameSessionRequest) => {
     webAudioService.stopCurrentAudio();
     setIsPlaying(false);
@@ -45,10 +47,15 @@ export function useGameRound(options?: UseGameRoundOptions) {
     setScore(0);
     setSelectedCustomArtist(params.artist || null);
 
-    // Filtrelemeyi frontend yapmaz, backend servisine gönderilir ve dönen veri tüketilir
-    const session = await gameService.createSession(params);
-    setSongsPool(session.songs);
-    setCurrentSong(session.songs[0] || null);
+    const chosenRegion = params.region === 'global' ? 'global' : 'tr';
+    setCurrentRegion(chosenRegion);
+
+    // 1. Aşama (Kolay) playlistini çek ve parçayı başlat
+    const initialSong = await songService.getRandomSongForStage(chosenRegion, 0);
+    setSongsPool([initialSong]);
+    setCurrentSong(initialSong);
+
+    await gameService.createSession(params);
   }, []);
 
   // Ses klibi çalma / durdurma (anlık saniye imleci takipli)
@@ -92,11 +99,11 @@ export function useGameRound(options?: UseGameRoundOptions) {
     setPlaybackSeconds(0);
     setPlaybackRatio(0);
 
-    if (currentAttemptIndex < 4) {
+    if (currentAttemptIndex < ATTEMPT_DURATIONS.length - 1) {
       const nextAttempt = currentAttemptIndex + 1;
       setCurrentAttemptIndex(nextAttempt);
     } else {
-      // 5 deneme de bitti - Bu aşama başarısız
+      // Tüm denemeler bitti - Bu aşama başarısız
       if (currentSong) {
         setFeedback({
           isSuccess: false,
@@ -104,13 +111,16 @@ export function useGameRound(options?: UseGameRoundOptions) {
         });
       }
 
-      setTimeout(() => {
-        if (currentStageIndex < 4) {
+      setTimeout(async () => {
+        if (currentStageIndex < STAGES.length - 1) {
           const nextStage = currentStageIndex + 1;
           setCurrentStageIndex(nextStage);
           setCurrentAttemptIndex(0);
           setFeedback(null);
-          setCurrentSong(songsPool[nextStage] || null);
+
+          // Zorluk değiştiğinde o zorluğun playlistinden şarkıyı çek
+          const nextSong = await songService.getRandomSongForStage(currentRegion, nextStage);
+          setCurrentSong(nextSong);
         } else {
           setIsGameOver(true);
           setFeedback({
@@ -120,7 +130,7 @@ export function useGameRound(options?: UseGameRoundOptions) {
         }
       }, 2500);
     }
-  }, [currentAttemptIndex, currentSong, currentStageIndex, songsPool]);
+  }, [currentAttemptIndex, currentRegion, currentSong, currentStageIndex]);
 
   // Tahmin onaylama — Service isteği çalışır ve hangi sürede bildiyse ona göre puan eklenir
   const submitGuess = useCallback(
@@ -169,18 +179,21 @@ export function useGameRound(options?: UseGameRoundOptions) {
           message: response.message,
         });
 
-        setTimeout(() => {
-          if (currentStageIndex < 4) {
+        setTimeout(async () => {
+          if (currentStageIndex < STAGES.length - 1) {
             const nextStage = currentStageIndex + 1;
             setCurrentStageIndex(nextStage);
             setCurrentAttemptIndex(0);
             setFeedback(null);
-            setCurrentSong(songsPool[nextStage] || null);
+
+            // Zorluk değiştiğinde o zorluğun playlistinden şarkıyı çek
+            const nextSong = await songService.getRandomSongForStage(currentRegion, nextStage);
+            setCurrentSong(nextSong);
           } else {
             setIsGameOver(true);
             setFeedback({
               isSuccess: true,
-              message: 'Mükemmel! 5 aşamayı da başarıyla tamamladın!',
+              message: `Mükemmel! ${STAGES.length} aşamayı da başarıyla tamamladın!`,
             });
           }
         }, 2200);
@@ -198,7 +211,7 @@ export function useGameRound(options?: UseGameRoundOptions) {
       currentAttemptIndex,
       currentDuration,
       currentStageIndex,
-      songsPool,
+      currentRegion,
       options,
       advanceAttempt,
     ]

@@ -111,16 +111,12 @@ export const RoomScoreboard: React.FC<RoomScoreboardProps> = ({ room, currentUse
             <span className={styles.rulePts}>800 P</span>
           </div>
           <div className={styles.ruleItem}>
-            <span className={styles.ruleTime}>🎯 1.0s</span>
+            <span className={styles.ruleTime}>🎯 2.0s</span>
             <span className={styles.rulePts}>600 P</span>
           </div>
           <div className={styles.ruleItem}>
-            <span className={styles.ruleTime}>⏳ 3.0s</span>
+            <span className={styles.ruleTime}>⏳ 8.0s</span>
             <span className={styles.rulePts}>400 P</span>
-          </div>
-          <div className={styles.ruleItem} style={{ gridColumn: 'span 2' }}>
-            <span className={styles.ruleTime}>🐢 7.0s+</span>
-            <span className={styles.rulePts}>200 P</span>
           </div>
         </div>
       </div>

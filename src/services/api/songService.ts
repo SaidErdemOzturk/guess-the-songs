@@ -1,10 +1,12 @@
 import { MOCK_SONG_DATABASE } from '../mock/songDatabase';
+import { spotifyService, getPlaylistIdByStage } from './spotifyService';
+import { itunesService } from './itunesService';
 import type { DifficultyLevel, Song, SongFilters, SongPoolStats } from '@/types/song';
 
 /**
  * Kurumsal Şarkı Servisi (Song Service)
- * Tüm metotlar tip güvenli şekilde mock veritabanı üzerinden zengin filtreleme,
- * arama, zorluk seviyesi eşleştirme ve istatistik değerlerini döndürür.
+ * Tüm metotlar tip güvenli şekilde mock veritabanı, Spotify ve iTunes Search API
+ * entegrasyonuyla zenginleştirilmiş şarkı havuzunu ve önizleme seslerini sağlar.
  */
 export const songService = {
   /**
@@ -17,10 +19,6 @@ export const songService = {
     let songs = [...MOCK_SONG_DATABASE];
 
     if (!filters) return songs;
-
-    if (filters.region && filters.region !== 'all') {
-      songs = songs.filter((s) => s.region === filters.region);
-    }
 
     if (filters.genre && filters.genre !== 'all') {
       songs = songs.filter((s) => s.genre === filters.genre);
@@ -68,19 +66,46 @@ export const songService = {
    */
   async getSongById(id: number): Promise<Song | null> {
     const song = MOCK_SONG_DATABASE.find((s) => s.id === id);
-    return song || null;
+    if (!song) return null;
+    return await itunesService.enrichSongWithPreview(song);
   },
 
   /**
    * Başlık, sanatçı ve alternatif isimlere göre anlık arama (Autocomplete)
+   * 1. Spotify API
+   * 2. Apple iTunes Search API
+   * 3. Mock Veritabanı
    */
   async searchSongs(query: string): Promise<Song[]> {
     if (!query.trim()) return [];
 
+    // 1. Spotify API bilgileri tanımlıysa canlı arama yap
+    if (spotifyService.hasCredentials()) {
+      try {
+        const spotifyResults = await spotifyService.searchTracks(query, 8);
+        if (spotifyResults.length > 0) {
+          return spotifyResults;
+        }
+      } catch (err) {
+        console.warn('Spotify araması başarısız, iTunes servisine dönülüyor:', err);
+      }
+    }
+
+    // 2. Apple iTunes Search API (ücretsiz ve sınırsız doğrudan arama)
+    try {
+      const itunesResults = await itunesService.searchTracks(query, 8);
+      if (itunesResults.length > 0) {
+        return itunesResults;
+      }
+    } catch (err) {
+      console.warn('iTunes araması başarısız, yerel veritabanına dönülüyor:', err);
+    }
+
+    // 3. Yerel Mock Veritabanı
     const q = query.toLowerCase().trim();
     return MOCK_SONG_DATABASE.filter(
       (song) => song.title.toLowerCase().includes(q) || song.artist.toLowerCase().includes(q)
-    ).slice(0, 8); // İlk 8 sonuç
+    ).slice(0, 8);
   },
 
   /**
@@ -91,37 +116,49 @@ export const songService = {
   },
 
   /**
-   * 5 Aşamalı oyun için zorluk sırasına göre (Aşama 1: Kolay -> Aşama 5: İmkansız)
-   * dengeli ve dinamik bir oyun havuzu oluşturur.
+   * Bölge ve aşama/zorluk indeksine (0: Kolay, 1: Orta, 2: Zor, 3: Uzman, 4: İmkansız) göre
+   * Spotify'dan ilgili playlisti çeker.
    */
-  async getRandomGamePool(filters?: SongFilters, count: number = 5): Promise<Song[]> {
-    const baseSongs = await this.getSongs(filters);
+  async getPlayList(region: 'tr' | 'global' = 'tr', stageIndex: number = 0): Promise<Song[]> {
+    const playlistId = getPlaylistIdByStage(region, stageIndex);
 
-    if (baseSongs.length < count) {
-      // Filtre sonucu azsa tüm havuzdan tamamla
-      return [...MOCK_SONG_DATABASE].sort(() => 0.5 - Math.random()).slice(0, count);
-    }
+    if (spotifyService.hasCredentials()) {
+      try {
+        const spotifySongs = await spotifyService.getPlaylistSongs(playlistId, {
+          limit: 50,
+          region,
+        });
 
-    // 1'den 5'e kadar zorluk derecesine göre birer şarkı seç
-    const pool: Song[] = [];
-    const ranks: (1 | 2 | 3 | 4 | 5)[] = [1, 2, 3, 4, 5];
-
-    ranks.forEach((rank) => {
-      const candidates = baseSongs.filter((s) => s.difficultyRank === rank);
-      if (candidates.length > 0) {
-        const picked = candidates[Math.floor(Math.random() * candidates.length)];
-        pool.push(picked);
+        if (spotifySongs.length > 0) {
+          return spotifySongs;
+        }
+      } catch (err) {
+        console.warn(`Spotify playlisti (${playlistId}) alınamadı, yerel veritabanına dönülüyor:`, err);
       }
-    });
-
-    // Eksik kalan olursa rastgele doldur
-    if (pool.length < count) {
-      const remaining = baseSongs.filter((s) => !pool.some((p) => p.id === s.id));
-      const needed = count - pool.length;
-      pool.push(...remaining.sort(() => 0.5 - Math.random()).slice(0, needed));
     }
 
-    return pool.slice(0, count);
+    // Mock veritabanı fallback: Zorluk derecesine göre mock şarkıları döner (Kolay, Orta, Zor)
+    const difficultyMap: DifficultyLevel[] = ['easy', 'medium', 'hard'];
+    const diff = difficultyMap[stageIndex] || 'easy';
+    const mockSongs = MOCK_SONG_DATABASE.filter((s) => s.region === region && s.difficulty === diff);
+    return mockSongs.length > 0 ? mockSongs : MOCK_SONG_DATABASE.filter((s) => s.difficulty === diff);
+  },
+
+  /**
+   * İlgili aşama için o aşamanın playlistinden rastgele 1 şarkı seçer
+   * ve Apple iTunes Search API ile 30 saniyelik gerçek MP3/AAC önizleme sesini bağlar.
+   */
+  async getRandomSongForStage(region: 'tr' | 'global' = 'tr', stageIndex: number = 0): Promise<Song> {
+    const songs = await this.getPlayList(region, stageIndex);
+    if (songs.length > 0) {
+      const randomIndex = Math.floor(Math.random() * songs.length);
+      const chosen = songs[randomIndex];
+      console.log(`🎲 [Playlist'ten Rastgele Şarkı Seçildi] (${randomIndex + 1}/${songs.length}): "${chosen.artist} - ${chosen.title}"`);
+      return await itunesService.enrichSongWithPreview(chosen);
+    }
+    const defaultSong = MOCK_SONG_DATABASE[0];
+    console.log(`🎲 [Varsayılan Şarkı Seçildi]: "${defaultSong.artist} - ${defaultSong.title}"`);
+    return await itunesService.enrichSongWithPreview(defaultSong);
   },
 
   /**

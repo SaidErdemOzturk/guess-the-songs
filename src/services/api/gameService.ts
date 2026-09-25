@@ -16,22 +16,19 @@ import type {
  * Hangi sürede bildiğine göre puan hesaplama fonksiyonu:
  * - 0.1 saniye: 1000 Puan (Süper refleks)
  * - 0.5 saniye: 800 Puan
- * - 1.0 saniye: 600 Puan
- * - 3.0 saniye: 400 Puan
- * - 7.0 saniye+: 200 Puan
+ * - 2.0 saniye: 600 Puan
+ * - 8.0 saniye: 400 Puan
  */
 export function calculatePointsByDuration(duration: number, difficultyRank = 1): number {
-  let basePoints = 200;
+  let basePoints = 400;
   if (duration <= 0.15) {
     basePoints = 1000;
   } else if (duration <= 0.55) {
     basePoints = 800;
-  } else if (duration <= 1.05) {
+  } else if (duration <= 2.05) {
     basePoints = 600;
-  } else if (duration <= 3.05) {
-    basePoints = 400;
   } else {
-    basePoints = 200;
+    basePoints = 400;
   }
 
   // Şarkı zorluk derecesi çarpanı (1x - 1.4x)
@@ -52,12 +49,12 @@ export const gameService = {
       // Backend API çağrısı: POST /api/v1/game/session { region, genre, era, artist }
       return await apiClient.post<GameSession>(ENDPOINTS.GAME.CREATE_SESSION, params);
     } catch {
-      // Backend simülasyonu: Backend filtrelenmiş hazır mock şarkı listesini döner
-      const backendFilteredSongs = await songService.getRandomGamePool(params, GAME_CONFIG.TOTAL_STAGES);
+      // İlk aşama (Kolay) için ilgili bölgenin playlistinden rastgele şarkı seç
+      const initialSong = await songService.getRandomSongForStage(params.region, 0);
 
       return {
         sessionId: `session_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-        songs: backendFilteredSongs,
+        songs: [initialSong],
         currentStageIndex: 0,
         currentAttemptIndex: 0,
         score: 0,
@@ -94,7 +91,11 @@ export const gameService = {
 
       let message = 'Yanlış tahmin! Sonraki süre kesiti açıldı.';
       if (isCorrect) {
-        message = `Tebrikler! ${request.duration}s içinde bildin (+${points} Puan) — ${currentSong.artist} - ${currentSong.title}`;
+        if (request.roomCode) {
+          message = `Tebrikler! ${request.duration}s içinde bildin (+${points} Puan) — ${currentSong.artist} - ${currentSong.title}`;
+        } else {
+          message = `Tebrikler! Doğru bildin — ${currentSong.artist} - ${currentSong.title}`;
+        }
       } else if (request.attemptIndex >= GAME_CONFIG.MAX_ATTEMPTS - 1) {
         message = `Tüm denemeler tükendi! Doğru parça: ${currentSong.artist} - ${currentSong.title}`;
       }

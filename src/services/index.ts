@@ -5,5 +5,7 @@ export * from './api/artistService';
 export * from './api/gameService';
 export * from './api/authService';
 export * from './api/roomService';
+export * from './api/spotifyService';
+export * from './api/itunesService';
 export * from './audio/webAudioService';
 export * from './mock/songDatabase';

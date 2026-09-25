@@ -11,8 +11,8 @@ interface StageControlBarProps {
   onBackHome: () => void;
 }
 
-// 5 Deneme Aşamalarının kümülatif süre dağılımı
-const STAGE_SEGMENT_WIDTHS = [6, 14, 20, 25, 35];
+// 4 Deneme Aşamalarının kümülatif süre dağılımı (0.1s, +0.4s, +1.5s, +6.0s)
+const STAGE_SEGMENT_WIDTHS = [6, 16, 28, 50];
 
 export const StageControlBar: React.FC<StageControlBarProps> = ({
   currentStageIndex,
@@ -124,7 +124,7 @@ export const StageControlBar: React.FC<StageControlBarProps> = ({
           marginBottom: '1.25rem',
         }}
       >
-        Aşama <span style={{ color: '#ffffff', fontWeight: 700 }}>{currentStage.stage}</span> / 5 ·{' '}
+        Aşama <span style={{ color: '#ffffff', fontWeight: 700 }}>{currentStage.stage}</span> / {STAGES.length} ·{' '}
         <span style={{ color: '#818cf8', fontWeight: 600 }}>{currentStage.name}</span>
       </div>
 
