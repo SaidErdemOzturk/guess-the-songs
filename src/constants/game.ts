@@ -1,15 +1,15 @@
 import type { GameStage } from '@/types/game';
 
 export const STAGES: GameStage[] = [
-  { name: 'Kolay', stage: 1, duration: 0.1, skipAdd: '+0.4s', widthPercent: '6%' },
-  { name: 'Orta', stage: 2, duration: 0.5, skipAdd: '+0.5s', widthPercent: '20%' },
-  { name: 'Zor', stage: 3, duration: 1.0, skipAdd: '+2.0s', widthPercent: '40%' },
+  { name: 'Kolay', stage: 1, duration: 0.5, skipAdd: '+1.5s', widthPercent: '10%' },
+  { name: 'Orta', stage: 2, duration: 2.0, skipAdd: '+6.0s', widthPercent: '30%' },
+  { name: 'Zor', stage: 3, duration: 8.0, skipAdd: '+7.0s', widthPercent: '65%' },
   // Uzman ve İmkansız sonradan eklenecek:
   // { name: 'Uzman', stage: 4, duration: 3.0, skipAdd: '+4.0s', widthPercent: '65%' },
   // { name: 'İmkansız', stage: 5, duration: 7.0, skipAdd: '+8.0s', widthPercent: '100%' },
 ];
 
-export const ATTEMPT_DURATIONS: number[] = [0.1, 0.5, 2.0, 8.0];
+export const ATTEMPT_DURATIONS: number[] = [0.5, 2.0, 8.0, 15.0];
 
 /**
  * Deneme indeksine göre bir sonraki denemeye geçildiğinde tam olarak kaç saniye ekleneceğini döner.

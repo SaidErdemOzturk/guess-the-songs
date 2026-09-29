@@ -1,17 +1,18 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from "react";
 import {
   AudioPlayer,
   GuessInput,
   StageControlBar,
   AttemptDots,
+  SpotifyEmbed,
   useGameRound,
-} from '@/features/game';
-import { RoomScoreboard } from '@/features/room/components/RoomScoreboard/RoomScoreboard';
-import { roomService } from '@/services/api/roomService';
-import { getAttemptSkipAdd } from '@/constants/game';
-import type { CreateGameSessionRequest } from '@/types/game';
-import type { Room } from '@/types/room';
-import styles from './GamePage.module.css';
+} from "@/features/game";
+import { RoomScoreboard } from "@/features/room/components/RoomScoreboard/RoomScoreboard";
+import { roomService } from "@/services/api/roomService";
+import { getAttemptSkipAdd } from "@/constants/game";
+import type { CreateGameSessionRequest } from "@/types/game";
+import type { Room } from "@/types/room";
+import styles from "./GamePage.module.css";
 
 interface GamePageProps {
   sessionParams: CreateGameSessionRequest;
@@ -49,11 +50,14 @@ export const GamePage: React.FC<GamePageProps> = ({
     currentStageIndex,
     currentAttemptIndex,
     currentDuration,
+    currentSong,
     isPlaying,
     playbackSeconds,
     playbackRatio,
     feedback,
     isGuessLocked,
+    isSongRevealed,
+    isLoadingSong,
     startNewGame,
     togglePlay,
     advanceAttempt,
@@ -83,32 +87,50 @@ export const GamePage: React.FC<GamePageProps> = ({
         <StageControlBar
           currentStageIndex={currentStageIndex}
           currentAttemptIndex={currentAttemptIndex}
-          currentDuration={currentDuration}
+          currentDuration={feedback?.isSuccess ? 8.0 : currentDuration}
           playbackSeconds={playbackSeconds}
           playbackRatio={playbackRatio}
           isPlaying={isPlaying}
+          isSolved={Boolean(feedback?.isSuccess)}
+          isWrong={Boolean(feedback !== null && !feedback.isSuccess)}
           onBackHome={onBackToHome}
         />
 
         {/* Merkez: Oynat Butonu & Canlı Süre Göstergesi */}
         <AudioPlayer
-          duration={currentDuration}
+          duration={feedback?.isSuccess ? 8.0 : currentDuration}
           isPlaying={isPlaying}
           playbackSeconds={playbackSeconds}
           onTogglePlay={togglePlay}
           feedback={feedback}
+          isLoading={isLoadingSong}
         />
 
+        {/* Şarkı Bildirildiğinde / Aşama Bittiğinde Spotify Embed Oynatıcı */}
+        {currentSong?.spotifyId && isSongRevealed && (
+          <div style={{ width: "100%", maxWidth: "580px", margin: "0.5rem auto" }}>
+            <SpotifyEmbed spotifyId={currentSong.spotifyId} compact={true} />
+          </div>
+        )}
+
         {/* Alt Kısım: Arama & Tahmin Alanı */}
-        <div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+        <div
+          style={{
+            width: "100%",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+          }}
+        >
           <GuessInput
             onGuess={submitGuess}
             onSkip={advanceAttempt}
-            disabled={isGuessLocked}
+            disabled={isGuessLocked || isLoadingSong}
+            isLoading={isLoadingSong}
             skipLabel={
               getAttemptSkipAdd(currentAttemptIndex)
                 ? `Geç ${getAttemptSkipAdd(currentAttemptIndex)}`
-                : 'Pes Et'
+                : "Pes Et"
             }
           />
           <AttemptDots currentAttemptIndex={currentAttemptIndex} />

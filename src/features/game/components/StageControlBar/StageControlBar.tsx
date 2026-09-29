@@ -8,11 +8,13 @@ interface StageControlBarProps {
   playbackSeconds: number;
   playbackRatio: number;
   isPlaying: boolean;
+  isSolved?: boolean;
+  isWrong?: boolean;
   onBackHome: () => void;
 }
 
-// 4 Deneme Aşamalarının kümülatif süre dağılımı (0.1s, +0.4s, +1.5s, +6.0s)
-const STAGE_SEGMENT_WIDTHS = [6, 16, 28, 50];
+// 4 Deneme Aşamalarının süre dağılımı (0.5s, +1.5s = 2.0s, +6.0s = 8.0s, +7.0s = 15.0s)
+const STAGE_SEGMENT_WIDTHS = [10, 20, 35, 35];
 
 export const StageControlBar: React.FC<StageControlBarProps> = ({
   currentStageIndex,
@@ -21,19 +23,35 @@ export const StageControlBar: React.FC<StageControlBarProps> = ({
   playbackSeconds,
   playbackRatio,
   isPlaying,
+  isSolved = false,
+  isWrong = false,
   onBackHome,
 }) => {
   const currentStage = STAGES[currentStageIndex] || STAGES[0];
 
-  const unlockedPercent = STAGE_SEGMENT_WIDTHS.slice(0, currentAttemptIndex + 1).reduce(
-    (acc, cur) => acc + cur,
-    0
-  );
+  const isFullBar = isSolved || (isWrong && currentDuration >= 15.0);
+
+  const unlockedPercent = isFullBar
+    ? 100
+    : STAGE_SEGMENT_WIDTHS.slice(0, currentAttemptIndex + 1).reduce(
+        (acc, cur) => acc + cur,
+        0
+      );
+
+  const effectiveDuration = isFullBar ? (isSolved ? 8.0 : 15.0) : currentDuration;
+
+  const barColor = isSolved ? '#10b981' : isWrong ? '#ef4444' : '#a855f7';
+  const barBorder = isSolved ? '#34d399' : isWrong ? '#f87171' : '#c084fc';
+  const barGlow = isSolved
+    ? 'rgba(16, 185, 129, 0.4)'
+    : isWrong
+      ? 'rgba(239, 68, 68, 0.4)'
+      : 'rgba(168, 85, 247, 0.35)';
 
   const cursorLeftPercent = isPlaying
     ? Math.min(unlockedPercent, Math.max(0, unlockedPercent * playbackRatio))
     : playbackSeconds > 0
-      ? unlockedPercent * (playbackSeconds / currentDuration)
+      ? Math.min(unlockedPercent, Math.max(0, unlockedPercent * (playbackSeconds / effectiveDuration)))
       : 0;
 
   return (
@@ -153,7 +171,7 @@ export const StageControlBar: React.FC<StageControlBarProps> = ({
               width: '4px',
               backgroundColor: '#ffffff',
               borderRadius: '9999px',
-              boxShadow: '0 0 12px #6366f1, 0 0 24px #ec4899',
+              boxShadow: `0 0 12px ${barColor}, 0 0 24px ${barColor}`,
               transform: 'translateX(-50%)',
               pointerEvents: 'none',
               zIndex: 20,
@@ -171,8 +189,8 @@ export const StageControlBar: React.FC<StageControlBarProps> = ({
                 marginBottom: '8px',
                 padding: '2px 8px',
                 borderRadius: '9999px',
-                background: 'linear-gradient(135deg, #4f46e5 0%, #ec4899 100%)',
-                border: '1px solid #818cf8',
+                background: barColor,
+                border: `1px solid ${barBorder}`,
                 color: '#ffffff',
                 fontSize: '11px',
                 fontWeight: 700,
@@ -180,10 +198,10 @@ export const StageControlBar: React.FC<StageControlBarProps> = ({
                 display: 'flex',
                 alignItems: 'center',
                 gap: '4px',
-                boxShadow: '0 0 15px rgba(99, 102, 241, 0.5)',
+                boxShadow: `0 0 15px ${barGlow}`,
               }}
             >
-              <span>⏱</span>
+              <span>{isSolved ? '🎉' : isWrong ? '❌' : '⏱'}</span>
               <span>{playbackSeconds.toFixed(1)}s</span>
             </div>
 
@@ -199,7 +217,7 @@ export const StageControlBar: React.FC<StageControlBarProps> = ({
                 height: 0,
                 borderLeft: '4px solid transparent',
                 borderRight: '4px solid transparent',
-                borderTop: '5px solid #ec4899',
+                borderTop: `5px solid ${barColor}`,
               }}
             />
           </div>
@@ -218,17 +236,16 @@ export const StageControlBar: React.FC<StageControlBarProps> = ({
           }}
         >
           {STAGE_SEGMENT_WIDTHS.map((width, idx) => {
-            const isFilled = idx <= currentAttemptIndex;
+            const isFilled = isFullBar || idx <= currentAttemptIndex;
             return (
               <div
                 key={idx}
                 style={{
                   height: '100%',
                   width: `${width}%`,
-                  background: isFilled
-                    ? 'linear-gradient(90deg, #6366f1 0%, #ec4899 100%)'
-                    : 'rgba(31, 41, 55, 0.8)',
+                  background: isFilled ? barColor : 'rgba(31, 41, 55, 0.8)',
                   borderRadius: '9999px',
+                  boxShadow: isFilled ? `0 0 10px ${barGlow}` : 'none',
                   transition: 'all 300ms cubic-bezier(0.4, 0, 0.2, 1)',
                 }}
               />

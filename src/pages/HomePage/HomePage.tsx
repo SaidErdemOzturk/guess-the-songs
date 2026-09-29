@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from "react";
-import { CustomArtistModal } from "@/features/game";
 import { songService } from "@/services/api/songService";
 import { spotifyService } from "@/services/api/spotifyService";
 import type { CreateGameSessionRequest } from "@/types/game";
@@ -14,7 +13,6 @@ export const HomePage: React.FC<HomePageProps> = ({ onStartGame }) => {
   const [genre, setGenre] = useState<GenreFilter>("all");
   const [era, setEra] = useState<EraFilter>("all");
   const [poolCount, setPoolCount] = useState<number>(18136);
-  const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSpotifyConnected, setIsSpotifyConnected] = useState(spotifyService.isUserLoggedIn());
 
   useEffect(() => {
@@ -37,9 +35,6 @@ export const HomePage: React.FC<HomePageProps> = ({ onStartGame }) => {
     onStartGame({ region, genre, era });
   };
 
-  const handleStartCustom = (artist: string) => {
-    onStartGame({ region, genre, era, artist });
-  };
 
   return (
     <div
@@ -307,37 +302,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onStartGame }) => {
       >
         Başla
       </button>
-
-      {/* Özel Oyun Butonu */}
-      <button
-        onClick={() => setIsModalOpen(true)}
-        style={{
-          marginTop: "1.5rem",
-          display: "inline-flex",
-          alignItems: "center",
-          gap: "0.5rem",
-          padding: "0.625rem 1.25rem",
-          borderRadius: "9999px",
-          backgroundColor: "rgba(17, 24, 39, 0.85)",
-          border: "1px solid rgba(99, 102, 241, 0.3)",
-          color: "#a5b4fc",
-          fontSize: "0.8125rem",
-          fontWeight: 600,
-          letterSpacing: "0.025em",
-          cursor: "pointer",
-          transition: "all 150ms ease",
-        }}
-      >
-        <span style={{ color: "#ec4899", fontSize: "0.875rem" }}>✦</span>
-        <span>Özel oyun — istediğin sanatçıyı çal</span>
-      </button>
-
-      {/* Özel Sanatçı Modalı */}
-      <CustomArtistModal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        onSelectArtist={handleStartCustom}
-      />
     </div>
   );
 };
+

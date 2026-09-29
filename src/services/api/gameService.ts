@@ -1,6 +1,7 @@
 import { apiClient } from './client';
 import { ENDPOINTS } from './endpoints';
 import { songService } from './songService';
+import { env } from '@/config/env';
 import { GAME_CONFIG, STAGES } from '@/constants/game';
 import { normalizeText } from '@/utils/formatters';
 import type {
@@ -45,27 +46,27 @@ export const gameService = {
    * ve filtrelenmiş oyun şarkılarını içeren oturumu döndürür.
    */
   async createSession(params: CreateGameSessionRequest): Promise<GameSession> {
-    try {
-      // Backend API çağrısı: POST /api/v1/game/session { region, genre, era, artist }
-      return await apiClient.post<GameSession>(ENDPOINTS.GAME.CREATE_SESSION, params);
-    } catch {
-      // İlk aşama (Kolay) için ilgili bölgenin playlistinden rastgele şarkı seç
-      const initialSong = await songService.getRandomSongForStage(params.region, 0);
-
-      return {
-        sessionId: `session_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-        songs: [initialSong],
-        currentStageIndex: 0,
-        currentAttemptIndex: 0,
-        score: 0,
-        status: 'playing',
-        startedAt: new Date().toISOString(),
-      };
+    if (env.apiBaseUrl && !env.apiBaseUrl.includes('example.com')) {
+      try {
+        return await apiClient.post<GameSession>(ENDPOINTS.GAME.CREATE_SESSION, params);
+      } catch (err) {
+        console.warn('[gameService] Backend createSession failed, falling back to local:', err);
+      }
     }
+
+    return {
+      sessionId: `session_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      songs: [],
+      currentStageIndex: 0,
+      currentAttemptIndex: 0,
+      score: 0,
+      status: 'playing',
+      startedAt: new Date().toISOString(),
+    };
   },
 
   /**
-   * Oyuncunun şarkı tahminini backend servisine doğrulatır.
+   * Oyuncunun şarkı tahminini doğrular.
    * Doğru bilinirse hangi sürede bildiyse o süreye göre puan ekler.
    */
   async submitGuess(
@@ -73,44 +74,48 @@ export const gameService = {
     currentSong: Song,
     guessedTitle: string
   ): Promise<GuessResponse> {
-    try {
-      return await apiClient.post<GuessResponse>(ENDPOINTS.GAME.SUBMIT_GUESS, request);
-    } catch {
-      const normalizedGuess = normalizeText(guessedTitle);
-      const normalizedActual = normalizeText(currentSong.title);
-      const isCorrect = normalizedGuess === normalizedActual;
-
-      let points = 0;
-      if (isCorrect) {
-        // Süreye göre puan hesaplama
-        points = calculatePointsByDuration(request.duration, currentSong.difficultyRank);
+    if (env.apiBaseUrl && !env.apiBaseUrl.includes('example.com')) {
+      try {
+        return await apiClient.post<GuessResponse>(ENDPOINTS.GAME.SUBMIT_GUESS, request);
+      } catch (err) {
+        console.warn('[gameService] Backend submitGuess failed, falling back to local evaluation:', err);
       }
-
-      const isStageCompleted = isCorrect || request.attemptIndex >= GAME_CONFIG.MAX_ATTEMPTS - 1;
-      const isGameOver = isStageCompleted && request.stageIndex >= GAME_CONFIG.TOTAL_STAGES - 1;
-
-      let message = 'Yanlış tahmin! Sonraki süre kesiti açıldı.';
-      if (isCorrect) {
-        if (request.roomCode) {
-          message = `Tebrikler! ${request.duration}s içinde bildin (+${points} Puan) — ${currentSong.artist} - ${currentSong.title}`;
-        } else {
-          message = `Tebrikler! Doğru bildin — ${currentSong.artist} - ${currentSong.title}`;
-        }
-      } else if (request.attemptIndex >= GAME_CONFIG.MAX_ATTEMPTS - 1) {
-        message = `Tüm denemeler tükendi! Doğru parça: ${currentSong.artist} - ${currentSong.title}`;
-      }
-
-      return {
-        isCorrect,
-        correctSong: isStageCompleted ? currentSong : undefined,
-        pointsEarned: points,
-        totalScore: points,
-        durationUsed: request.duration,
-        isStageCompleted,
-        isGameOver,
-        message,
-      };
     }
+
+    const normalizedGuess = normalizeText(guessedTitle);
+    const normalizedActual = normalizeText(currentSong.title);
+    const isCorrect = normalizedGuess === normalizedActual;
+
+    let points = 0;
+    if (isCorrect) {
+      // Süreye göre puan hesaplama
+      points = calculatePointsByDuration(request.duration, currentSong.difficultyRank);
+    }
+
+    const isStageCompleted = isCorrect || request.attemptIndex >= GAME_CONFIG.MAX_ATTEMPTS - 1;
+    const isGameOver = isStageCompleted && request.stageIndex >= GAME_CONFIG.TOTAL_STAGES - 1;
+
+    let message = 'Yanlış tahmin! Sonraki süre kesiti açıldı.';
+    if (isCorrect) {
+      if (request.roomCode) {
+        message = `Tebrikler! ${request.duration}s içinde bildin (+${points} Puan) — ${currentSong.artist} - ${currentSong.title}`;
+      } else {
+        message = `Tebrikler! Doğru bildin — ${currentSong.artist} - ${currentSong.title}`;
+      }
+    } else if (request.attemptIndex >= GAME_CONFIG.MAX_ATTEMPTS - 1) {
+      message = `Tüm denemeler tükendi! Doğru parça: ${currentSong.artist} - ${currentSong.title}`;
+    }
+
+    return {
+      isCorrect,
+      correctSong: isStageCompleted ? currentSong : undefined,
+      pointsEarned: points,
+      totalScore: points,
+      durationUsed: request.duration,
+      isStageCompleted,
+      isGameOver,
+      message,
+    };
   },
 
   /**

@@ -7,6 +7,7 @@ interface GuessInputProps {
   onSkip: () => void;
   skipLabel: string;
   disabled?: boolean;
+  isLoading?: boolean;
 }
 
 export const GuessInput: React.FC<GuessInputProps> = ({
@@ -14,6 +15,7 @@ export const GuessInput: React.FC<GuessInputProps> = ({
   onSkip,
   skipLabel,
   disabled = false,
+  isLoading = false,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [searchResults, setSearchResults] = useState<Song[]>([]);
@@ -21,18 +23,20 @@ export const GuessInput: React.FC<GuessInputProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!searchTerm.trim()) {
+    const trimmed = searchTerm.trim();
+    if (!trimmed || trimmed.length < 2) {
       setSearchResults([]);
       setIsDropdownOpen(false);
       return;
     }
 
+    // Kota ve Lisans koruması: 350ms debounce ile kullanıcı yazmayı bitirene kadar istek atılmaz
     const timer = setTimeout(() => {
-      songService.searchSongs(searchTerm).then((results) => {
+      songService.searchSongs(trimmed).then((results) => {
         setSearchResults(results);
         setIsDropdownOpen(true);
       });
-    }, 150);
+    }, 350);
 
     return () => clearTimeout(timer);
   }, [searchTerm]);
@@ -53,19 +57,45 @@ export const GuessInput: React.FC<GuessInputProps> = ({
     onGuess(song);
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && searchResults.length > 0) {
-      e.preventDefault();
+  const handleGuessSubmit = () => {
+    if (disabled || isLoading || !searchTerm.trim()) return;
+
+    if (searchResults.length > 0) {
       handleSelectSong(searchResults[0]);
+    } else {
+      // Doğrudan yazılan metinle tahmin gönderme fallback'i
+      const customSong: Song = {
+        id: Date.now(),
+        title: searchTerm.trim(),
+        artist: '',
+        year: new Date().getFullYear(),
+        genre: 'pop',
+        region: 'tr',
+        difficulty: 'easy',
+        difficultyRank: 1,
+        startSecond: 0,
+        duration: 30,
+        previewUrl: '',
+      };
+      handleSelectSong(customSong);
     }
   };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleGuessSubmit();
+    }
+  };
+
+  const hasSearchText = Boolean(searchTerm.trim());
 
   return (
     <div
       ref={containerRef}
       style={{
         width: '100%',
-        maxWidth: '36rem',
+        maxWidth: '38rem',
         display: 'flex',
         flexDirection: 'column',
         gap: '0.75rem',
@@ -93,31 +123,37 @@ export const GuessInput: React.FC<GuessInputProps> = ({
 
           <input
             type="text"
-            placeholder={disabled ? 'Tebrikler! Doğru bildin...' : 'Şarkı veya sanatçı ara...'}
+            placeholder={
+              isLoading
+                ? 'Şarkı yükleniyor, lütfen bekleyin...'
+                : disabled
+                  ? 'Tebrikler! Doğru bildin...'
+                  : 'Şarkı veya sanatçı ara...'
+            }
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             onKeyDown={handleKeyDown}
-            disabled={disabled}
+            disabled={disabled || isLoading}
             style={{
               width: '100%',
               paddingLeft: '2.5rem',
               paddingRight: '1rem',
               paddingTop: '0.75rem',
               paddingBottom: '0.75rem',
-              backgroundColor: disabled ? 'rgba(17, 24, 39, 0.4)' : 'rgba(17, 24, 39, 0.9)',
-              color: disabled ? '#6b7280' : '#ffffff',
+              backgroundColor: disabled || isLoading ? 'rgba(17, 24, 39, 0.4)' : 'rgba(17, 24, 39, 0.9)',
+              color: disabled || isLoading ? '#6b7280' : '#ffffff',
               borderRadius: '9999px',
-              border: disabled ? '1px solid rgba(255, 255, 255, 0.05)' : '1px solid rgba(255, 255, 255, 0.1)',
+              border: disabled || isLoading ? '1px solid rgba(255, 255, 255, 0.05)' : '1px solid rgba(255, 255, 255, 0.1)',
               fontSize: '0.875rem',
               outline: 'none',
-              cursor: disabled ? 'not-allowed' : 'text',
-              opacity: disabled ? 0.6 : 1,
+              cursor: disabled || isLoading ? 'not-allowed' : 'text',
+              opacity: disabled || isLoading ? 0.6 : 1,
               transition: 'all 150ms ease',
             }}
           />
 
           {/* Autocomplete Listesi */}
-          {isDropdownOpen && (
+          {isDropdownOpen && !disabled && (
             <div
               style={{
                 position: 'absolute',
@@ -145,12 +181,16 @@ export const GuessInput: React.FC<GuessInputProps> = ({
                     fontStyle: 'italic',
                   }}
                 >
-                  Eşleşen parça bulunamadı.
+                  Eşleşen parça bulunamadı. Enter'a basarak "{searchTerm}" tahminini gönderebilirsiniz.
                 </div>
               ) : (
                 searchResults.map((song) => (
                   <div
                     key={song.id}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      handleSelectSong(song);
+                    }}
                     onClick={() => handleSelectSong(song)}
                     style={{
                       padding: '0.625rem 1rem',
@@ -195,25 +235,28 @@ export const GuessInput: React.FC<GuessInputProps> = ({
         {/* Geç Butonu */}
         <button
           onClick={onSkip}
-          disabled={disabled}
+          disabled={disabled || isLoading}
           style={{
             padding: '0.75rem 1.25rem',
             borderRadius: '9999px',
-            backgroundColor: disabled ? 'rgba(31, 41, 55, 0.4)' : 'rgba(31, 41, 55, 0.85)',
-            border: disabled ? '1px solid rgba(255, 255, 255, 0.05)' : '1px solid rgba(255, 255, 255, 0.12)',
-            color: disabled ? '#6b7280' : '#ffffff',
+            backgroundColor: disabled || isLoading ? 'rgba(31, 41, 55, 0.4)' : 'rgba(31, 41, 55, 0.85)',
+            border: disabled || isLoading ? '1px solid rgba(255, 255, 255, 0.05)' : '1px solid rgba(255, 255, 255, 0.12)',
+            color: disabled || isLoading ? '#6b7280' : '#ffffff',
             fontWeight: 600,
             fontSize: '0.8125rem',
             display: 'flex',
             alignItems: 'center',
             gap: '0.375rem',
-            cursor: disabled ? 'not-allowed' : 'pointer',
-            opacity: disabled ? 0.5 : 1,
+            cursor: disabled || isLoading ? 'not-allowed' : 'pointer',
+            opacity: disabled || isLoading ? 0.5 : 1,
             whiteSpace: 'nowrap',
             transition: 'all 150ms ease',
           }}
         >
-          <i className="fa-solid fa-forward-step" style={{ color: disabled ? '#6b7280' : '#818cf8', fontSize: '0.75rem' }} />
+          <i
+            className="fa-solid fa-forward-step"
+            style={{ color: disabled || isLoading ? '#6b7280' : '#818cf8', fontSize: '0.75rem' }}
+          />
           <span>{skipLabel}</span>
         </button>
       </div>

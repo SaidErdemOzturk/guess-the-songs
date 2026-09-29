@@ -204,6 +204,15 @@ class SpotifyService {
   private cachedClientToken: string | null = null;
   private clientTokenExpiresAt: number = 0;
 
+  // Kota ve İstek Optimizasyonu (Lisans ve Rate-Limit Koruması)
+  private playlistCache = new Map<string, { songs: Song[]; timestamp: number }>();
+  private readonly PLAYLIST_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 saat
+
+  private searchCache = new Map<string, { songs: Song[]; timestamp: number }>();
+  private readonly SEARCH_CACHE_TTL = 60 * 60 * 1000; // 1 saat
+
+  private rateLimitUntil: number = 0;
+
   /**
    * Çalışma anında Client ID ve Secret tanımlamak / güncellemek için kullanılır
    */
@@ -212,6 +221,8 @@ class SpotifyService {
     this.clientSecret = clientSecret.trim();
     this.cachedClientToken = null;
     this.clientTokenExpiresAt = 0;
+    this.playlistCache.clear();
+    this.searchCache.clear();
   }
 
   public hasCredentials(): boolean {
@@ -262,7 +273,10 @@ class SpotifyService {
       'playlist-read-collaborative',
       'user-read-private',
       'user-read-email',
+      'user-modify-playback-state',
+      'user-read-playback-state',
     ].join(' ');
+
 
     const params = new URLSearchParams({
       client_id: this.clientId,
@@ -435,8 +449,16 @@ class SpotifyService {
 
   /**
    * Spotify Web API'ye yetkilendirilmiş istek atan yardımcı fonksiyon
+   * 429 Rate-Limit kontrolü ve otomatik bekleme süresi (Retry-After) desteği içerir.
    */
   private async request<T>(endpoint: string): Promise<T> {
+    const now = Date.now();
+    if (now < this.rateLimitUntil) {
+      const waitSeconds = Math.ceil((this.rateLimitUntil - now) / 1000);
+      console.warn(`⏳ [Spotify API Rate Limit] İstek kotası dolu, ${waitSeconds}s süreyle duraklatıldı.`);
+      throw new Error(`Spotify API kotası doldu. Lütfen ${waitSeconds}s bekleyin.`);
+    }
+
     const userToken = localStorage.getItem(STORAGE_KEYS.USER_ACCESS_TOKEN);
     const token = await this.getAccessToken();
     const tokenType = (token === userToken) ? 'KULLANICI TOKENI (User OAuth)' : 'UYGULAMA TOKENI (Client Credentials)';
@@ -448,6 +470,14 @@ class SpotifyService {
         Authorization: `Bearer ${token}`,
       },
     });
+
+    // 429 Too Many Requests (Kota / Lisans Limiti Aşıldı)
+    if (response.status === 429) {
+      const retryAfter = Number(response.headers.get('Retry-After') || 10);
+      this.rateLimitUntil = Date.now() + retryAfter * 1000;
+      console.warn(`⚠️ [Spotify API] 429 Rate Limit (Kota Aşıldı)! Retry-After: ${retryAfter}s`);
+      throw new Error(`Spotify istek limiti aşıldı. ${retryAfter}s sonra tekrar deneyin.`);
+    }
 
     if (response.status === 401) {
       console.warn('⚠️ [Spotify API] 401 Unauthorized - Token yenileniyor...');
@@ -483,7 +513,10 @@ class SpotifyService {
 
   /**
    * Spotify Çalma Listesindeki (Playlist) parçaları getirir ve Song formatına dönüştürür.
-   * User Token ile çağrıldığı için 403 Forbidden hatası vermez.
+   * Lisans / Kota Optimizasyonu:
+   * 1. In-memory ve localStorage ile 24 saat boyunca önbelleğe alır.
+   * 2. Tekrar tekrar Spotify API'ye gitmez, kotayı tüketmez.
+   * 3. Gereksiz /me teşhis çağrısı kaldırılmıştır.
    */
   public async getPlaylistSongs(
     playlistId: string,
@@ -491,52 +524,134 @@ class SpotifyService {
   ): Promise<Song[]> {
     const limit = options?.limit || 50;
     const region = options?.region || 'tr';
+    const cacheKey = `spotify_playlist_${playlistId}_${region}`;
+    const now = Date.now();
 
-    // Teşhis: Kullanıcı oturumunu kontrol et
-    try {
-      const me = await this.request<any>('/me');
-      console.log(`👤 [Spotify Oturum Açan Kullanıcı]: ${me.display_name || ''} (${me.email || me.id})`);
-    } catch (e) {
-      console.error('❌ [/me İstek Hatası - User Management kontrol edin]:', e);
+    // 1. In-memory bellek kontrolü
+    const memoryHit = this.playlistCache.get(cacheKey);
+    if (memoryHit && now - memoryHit.timestamp < this.PLAYLIST_CACHE_TTL) {
+      console.log(`⚡ [Spotify Cache] Playlist bellekten getirildi: ${playlistId} (${memoryHit.songs.length} parça)`);
+      return memoryHit.songs.slice(0, limit);
     }
 
-    // /playlists/{id} çağrılır (tracks alt uç noktası yerine ana playlist uç noktası)
+    // 2. localStorage kalıcı önbellek kontrolü (Sayfa yenilense dahi kotayı korur)
+    try {
+      const stored = localStorage.getItem(cacheKey);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed?.timestamp && now - parsed.timestamp < this.PLAYLIST_CACHE_TTL && Array.isArray(parsed.songs)) {
+          this.playlistCache.set(cacheKey, parsed);
+          console.log(`💾 [Spotify Cache] Playlist localStorage'dan getirildi: ${playlistId} (${parsed.songs.length} parça)`);
+          return parsed.songs.slice(0, limit);
+        }
+      }
+    } catch { }
+
+    // Rate-limit altındaysak ve eski verimiz varsa onu döndür
+    if (now < this.rateLimitUntil && memoryHit?.songs?.length) {
+      return memoryHit.songs.slice(0, limit);
+    }
+
+    // 3. Önbellekte yoksa API'den çek
     const data = await this.request<any>(`/playlists/${playlistId}`);
 
-    // Yeni Spotify formatı: data.items.items | Klasik format: data.tracks.items veya data.items
     const rawItems: any[] =
       data.items?.items ||
       data.tracks?.items ||
       (Array.isArray(data.items) ? data.items : []) ||
       [];
 
-    console.log(`🎵 [Spotify Playlist] Toplam ${rawItems.length} parça alındı:`, data.name || playlistId);
+    console.log(`🎵 [Spotify Playlist] Toplam ${rawItems.length} parça API'den alındı:`, data.name || playlistId);
 
     const songs: Song[] = [];
-
     rawItems.forEach((entry: any, index: number) => {
-      // Yeni Spotify formatında 'item', klasik formatta 'track'
       const track = entry.item || entry.track || entry;
       if (track && track.name) {
         songs.push(this.mapSpotifyTrackToSong(track, index + 1, region));
       }
     });
 
+    // Başarılı sonucu hem belleğe hem localStorage'a kaydet
+    if (songs.length > 0) {
+      const cacheData = { songs, timestamp: now };
+      this.playlistCache.set(cacheKey, cacheData);
+      try {
+        localStorage.setItem(cacheKey, JSON.stringify(cacheData));
+      } catch { }
+    }
+
     return songs.slice(0, limit);
   }
 
   /**
-   * Spotify üzerinde parça veya sanatçı arar
+   * Spotify üzerinde parça veya sanatçı arar.
+   * Lisans / Kota Optimizasyonu:
+   * 1. 2 karakterden kısa sorgular için istek atmaz.
+   * 2. Yapılan aramaları 1 saat boyunca önbellekte tutar; aynı kelime tekrar arandığında API'yi yormaz.
    */
   public async searchTracks(query: string, limit: number = 10): Promise<Song[]> {
-    if (!query.trim()) return [];
+    const trimmed = query.trim();
+    if (!trimmed || trimmed.length < 2) return [];
 
-    const data = await this.request<SpotifySearchResponse>(
-      `/search?q=${encodeURIComponent(query)}&type=track&limit=${limit}`
-    );
+    const normalized = trimmed.toLowerCase();
+    const cacheKey = `${normalized}::${limit}`;
+    const now = Date.now();
 
-    const items = data.tracks?.items || [];
-    return items.map((track, index) => this.mapSpotifyTrackToSong(track, index + 1));
+    // 1. Arama önbelleğini kontrol et
+    const cached = this.searchCache.get(cacheKey);
+    if (cached && now - cached.timestamp < this.SEARCH_CACHE_TTL) {
+      return cached.songs;
+    }
+
+    // 2. Rate-limit altındaysa gereksiz istek atma
+    if (now < this.rateLimitUntil) {
+      console.warn('⚠️ [Spotify Search] Rate-limit aktif, istek engellendi.');
+      return cached?.songs || [];
+    }
+
+    try {
+      const data = await this.request<SpotifySearchResponse>(
+        `/search?q=${encodeURIComponent(trimmed)}&type=track&limit=${limit}`
+      );
+
+      const items = data.tracks?.items || [];
+      const songs = items.map((track, index) => this.mapSpotifyTrackToSong(track, index + 1));
+
+      this.searchCache.set(cacheKey, { songs, timestamp: now });
+      return songs;
+    } catch (err) {
+      console.warn(`[Spotify Search] "${trimmed}" arama hatası:`, err);
+      return cached?.songs || [];
+    }
+  }
+
+  private trackCache = new Map<string, Song | null>();
+
+  /**
+   * Spotify Web API https://api.spotify.com/v1/tracks/{id} endpoint'inden
+   * tekil bir parçanın tüm detaylarını çeker ve Song formatına dönüştürür.
+   * Şarkı aktif olduğunda tek bir kez çalışır ve cache'lenir.
+   */
+  public async getTrack(trackId: string, market: string = 'TR'): Promise<Song | null> {
+    if (!trackId) return null;
+    const cacheKey = `${trackId}:::${market}`;
+    if (this.trackCache.has(cacheKey)) {
+      return this.trackCache.get(cacheKey) || null;
+    }
+
+    try {
+      const track = await this.request<SpotifyTrack>(`/tracks/${trackId}?market=${market}`);
+      if (!track) {
+        this.trackCache.set(cacheKey, null);
+        return null;
+      }
+      const song = this.mapSpotifyTrackToSong(track);
+      this.trackCache.set(cacheKey, song);
+      return song;
+    } catch (err) {
+      console.error(`❌ [Spotify API] https://api.spotify.com/v1/tracks/${trackId} hatası:`, err);
+      return null;
+    }
   }
 
   /**
@@ -550,6 +665,9 @@ class SpotifyService {
     const tracks = data.tracks || [];
     return tracks.map((track, index) => this.mapSpotifyTrackToSong(track, index + 1));
   }
+
+
+
 
   /**
    * Spotify oturumunu sonlandırır
@@ -610,6 +728,7 @@ class SpotifyService {
 
     return {
       id: numericId,
+      spotifyId: track.id,
       title: track.name,
       artist: mainArtist,
       featuredArtists: featuredArtists.length > 0 ? featuredArtists : undefined,

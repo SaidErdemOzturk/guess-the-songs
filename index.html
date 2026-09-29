@@ -9,9 +9,18 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+
+    <!-- Spotify CDN ve Medya Sunucuları Bağlantı Optimizasyonu (Resource Hints) -->
+    <link rel="preconnect" href="https://open.spotify.com" />
+    <link rel="preconnect" href="https://gew4-spclient.spotify.com" />
+    <link rel="preconnect" href="https://audio-sp-fallback.spotifycdn.net" crossorigin />
+    <link rel="dns-prefetch" href="https://open.spotify.com" />
+    <link rel="dns-prefetch" href="https://gew4-spclient.spotify.com" />
+    <link rel="dns-prefetch" href="https://audio-sp-fallback.spotifycdn.net" />
   </head>
   <body>
     <div id="root"></div>
+    <script src="https://open.spotify.com/embed/iframe-api/v1" async></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

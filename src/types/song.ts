@@ -18,6 +18,7 @@ export interface Song {
   duration: number; // Toplam süre (saniye)
   coverUrl?: string; // Albüm/şarkı kapağı görseli
   previewUrl?: string; // MP3 ses dosyası önizleme linki
+  spotifyId?: string; // Spotify Parça ID (v1/tracks/{id} için)
   isrc?: string; // Uluslararası Benzersiz Kayıt Kodu (Birebir doğru stüdyo kaydı eşleşmesi için)
   hints?: string[]; // Oyuncuya gösterilebilecek ipuçları
   playCount?: number; // Şarkı popülerlik / dinlenme skoru
