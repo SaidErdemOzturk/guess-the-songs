@@ -111,6 +111,8 @@ class SpotifyEmbedService {
   private primeTimeoutId: number | null = null;
   private primedUris = new Set<string>();
 
+  private controllerPromise: Promise<SpotifyEmbedController> | null = null;
+
   /**
    * Varsayılan arka plan oynatıcı elementini oluşturur (viewport içi, görünmez container).
    * Not: Tarayıcıların ekran dışı (-9999px) iframe throttling (güç tasarrufu yavaşlatması)
@@ -120,11 +122,15 @@ class SpotifyEmbedService {
     if (this.controller) {
       return this.controller;
     }
+    if (this.controllerPromise) {
+      return this.controllerPromise;
+    }
 
     let container = document.getElementById('spotify-embed-background-player');
     if (!container) {
       container = document.createElement('div');
       container.id = 'spotify-embed-background-player';
+      container.setAttribute('aria-hidden', 'true');
       container.style.position = 'fixed';
       container.style.bottom = '0';
       container.style.right = '0';
@@ -132,18 +138,46 @@ class SpotifyEmbedService {
       container.style.height = '80px';
       container.style.opacity = '0.001';
       container.style.pointerEvents = 'none';
-      container.style.zIndex = '-999';
+      container.style.zIndex = '-9999';
+      container.style.overflow = 'hidden';
       document.body.appendChild(container);
+    }
+
+    // Spotify createController hedef elementi doğrudan iframe ile değiştirdiği için,
+    // wrapper'ın kendisinin ezilmemesi amacıyla içine bir yuva (slot) elementi koyuyoruz.
+    let slot = container.querySelector('#spotify-embed-slot') as HTMLElement | null;
+    if (!slot) {
+      slot = document.createElement('div');
+      slot.id = 'spotify-embed-slot';
+      container.appendChild(slot);
     }
 
     const defaultUri = initialUri ? this.formatUri(initialUri) : 'spotify:track:4cOdK2wGLETKBW3PvgPWqT';
     if (initialUri) {
       this.currentTrackUri = defaultUri;
     }
-    return this.createController(container, defaultUri, {
+
+    this.controllerPromise = this.createController(slot, defaultUri, {
       width: 200,
       height: 80,
-    });
+    })
+      .then((controller) => {
+        this.controllerPromise = null;
+        const iframe = container?.querySelector('iframe');
+        if (iframe) {
+          iframe.style.opacity = '0.001';
+          iframe.style.pointerEvents = 'none';
+          iframe.tabIndex = -1;
+          iframe.setAttribute('aria-hidden', 'true');
+        }
+        return controller;
+      })
+      .catch((err) => {
+        this.controllerPromise = null;
+        throw err;
+      });
+
+    return this.controllerPromise;
   }
 
   /**
@@ -433,6 +467,7 @@ class SpotifyEmbedService {
       } catch { }
       this.controller = null;
     }
+    this.controllerPromise = null;
     const container = document.getElementById('spotify-embed-background-player');
     if (container) {
       container.innerHTML = '';

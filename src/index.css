@@ -88,3 +88,24 @@ input[type=range]::-webkit-slider-thumb:hover {
 .pulse-effect {
   animation: pulse-ring 2s infinite ease-in-out;
 }
+
+/* Arka plan Spotify oynatıcısını tamamen görünmez ve dokunulamaz kıl */
+#spotify-embed-background-player {
+  position: fixed !important;
+  bottom: 0 !important;
+  right: 0 !important;
+  width: 200px !important;
+  height: 80px !important;
+  opacity: 0.001 !important;
+  pointer-events: none !important;
+  z-index: -9999 !important;
+  overflow: hidden !important;
+}
+
+#spotify-embed-background-player iframe {
+  width: 200px !important;
+  height: 80px !important;
+  opacity: 0.001 !important;
+  pointer-events: none !important;
+  border: 0 !important;
+}

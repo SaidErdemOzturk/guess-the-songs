@@ -13,7 +13,9 @@ export const HomePage: React.FC<HomePageProps> = ({ onStartGame }) => {
   const [genre, setGenre] = useState<GenreFilter>("all");
   const [era, setEra] = useState<EraFilter>("all");
   const [poolCount, setPoolCount] = useState<number>(18136);
-  const [isSpotifyConnected, setIsSpotifyConnected] = useState(spotifyService.isUserLoggedIn());
+  const [isSpotifyConnected, setIsSpotifyConnected] = useState(
+    spotifyService.isUserLoggedIn(),
+  );
 
   useEffect(() => {
     setIsSpotifyConnected(spotifyService.isUserLoggedIn());
@@ -34,7 +36,6 @@ export const HomePage: React.FC<HomePageProps> = ({ onStartGame }) => {
     }
     onStartGame({ region, genre, era });
   };
-
 
   return (
     <div
@@ -305,4 +306,3 @@ export const HomePage: React.FC<HomePageProps> = ({ onStartGame }) => {
     </div>
   );
 };
-
