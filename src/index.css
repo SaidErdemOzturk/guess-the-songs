@@ -89,23 +89,26 @@ input[type=range]::-webkit-slider-thumb:hover {
   animation: pulse-ring 2s infinite ease-in-out;
 }
 
-/* Arka plan Spotify oynatıcısını tamamen görünmez ve dokunulamaz kıl */
+/* Arka plan Spotify oynatıcısını tamamen görünmez, dokunulamaz ve kırpılmış kıl */
 #spotify-embed-background-player {
   position: fixed !important;
   bottom: 0 !important;
   right: 0 !important;
-  width: 200px !important;
-  height: 80px !important;
+  width: 1px !important;
+  height: 1px !important;
   opacity: 0.001 !important;
   pointer-events: none !important;
   z-index: -9999 !important;
   overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  clip-path: inset(50%) !important;
 }
 
 #spotify-embed-background-player iframe {
-  width: 200px !important;
-  height: 80px !important;
+  width: 1px !important;
+  height: 1px !important;
   opacity: 0.001 !important;
   pointer-events: none !important;
   border: 0 !important;
 }
+

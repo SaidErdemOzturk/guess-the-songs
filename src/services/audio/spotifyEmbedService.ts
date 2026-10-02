@@ -114,9 +114,9 @@ class SpotifyEmbedService {
   private controllerPromise: Promise<SpotifyEmbedController> | null = null;
 
   /**
-   * Varsayılan arka plan oynatıcı elementini oluşturur (viewport içi, görünmez container).
-   * Not: Tarayıcıların ekran dışı (-9999px) iframe throttling (güç tasarrufu yavaşlatması)
-   * yapmaması için viewport içinde (bottom: 0, right: 0) ve 0.001 opaklıkta tutulur.
+   * Varsayılan arka plan oynatıcı elementini oluşturur (viewport içi, görünmez ve kırpılmış container).
+   * Not: Tarayıcıların ekran dışı (-9999px) iframe throttling yapmaması için viewport içinde
+   * (bottom: 0, right: 0) tutulur; clip ile görsel olarak tamamen gizlenir.
    */
   public async ensureHiddenController(initialUri?: string): Promise<SpotifyEmbedController> {
     if (this.controller) {
@@ -134,12 +134,13 @@ class SpotifyEmbedService {
       container.style.position = 'fixed';
       container.style.bottom = '0';
       container.style.right = '0';
-      container.style.width = '200px';
-      container.style.height = '80px';
+      container.style.width = '1px';
+      container.style.height = '1px';
       container.style.opacity = '0.001';
       container.style.pointerEvents = 'none';
       container.style.zIndex = '-9999';
       container.style.overflow = 'hidden';
+      container.style.clip = 'rect(0, 0, 0, 0)';
       document.body.appendChild(container);
     }
 
@@ -158,17 +159,20 @@ class SpotifyEmbedService {
     }
 
     this.controllerPromise = this.createController(slot, defaultUri, {
-      width: 200,
-      height: 80,
+      width: 1,
+      height: 1,
     })
       .then((controller) => {
         this.controllerPromise = null;
         const iframe = container?.querySelector('iframe');
         if (iframe) {
+          iframe.style.width = '1px';
+          iframe.style.height = '1px';
           iframe.style.opacity = '0.001';
           iframe.style.pointerEvents = 'none';
           iframe.tabIndex = -1;
           iframe.setAttribute('aria-hidden', 'true');
+          iframe.setAttribute('allow', 'autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture');
         }
         return controller;
       })
@@ -181,89 +185,44 @@ class SpotifyEmbedService {
   }
 
   /**
-   * "Sıfırıncı Saniye" Pre-buffer & Pause Tekniği (Priming):
-   * Parçayı arka planda Spotify CDN'den yükleyip, DRM şifresini çözdürür ve
-   * ilk ses karesi gelir gelmez hemen durdurup 0. saniyeye çeker.
-   * Lisans / DRM Optimizasyonu:
-   * 1. Daha önce prime edilmiş şarkı için kesinlikle tekrar DRM lisans çağrısı yapmaz.
-   * 2. Zaten yüklü olan parçayı tekrar loadUri ile baştan yüklemez.
-   */
-  public async primeTrack(trackUriOrId: string): Promise<void> {
-    const uri = this.formatUri(trackUriOrId);
-    const controller = await this.ensureHiddenController(uri);
-
-    // Bu şarkı zaten primed ve hazırsa tekrar DRM lisansı / pre-buffer yapmaya gerek yok
-    if (this.primedUris.has(uri) || (this.currentTrackUri === uri && this.isPrimed)) {
-      this.currentTrackUri = uri;
-      this.isPrimed = true;
-      this.isTrackReady = true;
-      return;
-    }
-
-    // Halihazırda oynatma devam ediyorsa bölme
-    if (this.isPlaying) {
-      return;
-    }
-
-    this.isPrimed = false;
-    this.isPriming = true;
-    this.isTrackReady = false;
-
-    return new Promise<void>((resolve) => {
-      let isDone = false;
-      const completePriming = () => {
-        if (isDone) return;
-        isDone = true;
-        if (this.primeTimeoutId !== null) {
-          clearTimeout(this.primeTimeoutId);
-          this.primeTimeoutId = null;
-        }
-        this.primedUris.add(uri);
-        this.isPriming = false;
-        this.isPrimed = true;
-        this.isTrackReady = true;
-        this.primeResolve = null;
-        resolve();
-      };
-
-      this.primeResolve = completePriming;
-
-      // 3 saniyelik güvenlik zaman aşımı: Spotify yanıt vermezse oyunu kilitlemesin
-      this.primeTimeoutId = window.setTimeout(() => {
-        if (this.isPriming) {
-          try {
-            this.controller?.pause();
-            this.controller?.seek(0);
-          } catch { }
-          completePriming();
-        }
-      }, 3000);
-
-      try {
-        if (this.currentTrackUri !== uri) {
-          this.currentTrackUri = uri;
-          controller.loadUri(uri);
-        }
-        // Arka planda DRM çözümü ve buffer akışını zorlamak için oynat
-        controller.play();
-      } catch (err) {
-        console.warn('⚠️ [SpotifyEmbed] Pre-buffer tetikleme hatası:', err);
-        completePriming();
-      }
-    });
-  }
-
-  /**
-   * Parçayı Spotify Embed'e yükler ve arka planda buffer'ı hazırlar (prime eder).
+   * Parçayı Spotify Embed'e yükler ve 0. saniyeye (en başa) hazırlar.
+   * Kesinlikle arka planda play() ÇAĞRILMAZ.
+   * Böylece ilk şarkı çekildiğinde oluşan 'Get Spotify' uyarısı ve tarayıcı autoplay engelleri tamamen önlenir.
    */
   public async loadTrack(trackUriOrId: string): Promise<void> {
     const uri = this.formatUri(trackUriOrId);
+    const controller = await this.ensureHiddenController(uri);
 
-    if (this.currentTrackUri === uri && this.controller && this.isPrimed) {
+    if (this.currentTrackUri === uri && this.isTrackReady) {
+      try {
+        controller.seek(0);
+      } catch { }
       return;
     }
 
-    await this.primeTrack(uri);
+    this.currentTrackUri = uri;
+    this.isTrackReady = false;
+    this.isPrimed = true;
+
+    try {
+      controller.loadUri(uri);
+      // Şarkının 00:00 konumunda başlaması için seek(0) emri gönder
+      window.setTimeout(() => {
+        try {
+          controller.seek(0);
+          this.isTrackReady = true;
+        } catch { }
+      }, 250);
+    } catch (err) {
+      console.warn('⚠️ [SpotifyEmbed] loadUri hatası:', err);
+    }
+  }
+
+  /**
+   * Geriye dönük uyumluluk: loadTrack fonksiyonunu çağırır.
+   */
+  public async primeTrack(trackUriOrId: string): Promise<void> {
+    await this.loadTrack(trackUriOrId);
   }
 
   /**
@@ -306,12 +265,17 @@ class SpotifyEmbedService {
     try {
       const uri = this.formatUri(trackUriOrId);
 
-      // Şarkı henüz hazır değilse yükle ve prime et
+      // Şarkı henüz hazır değilse yükle
       if (this.currentTrackUri !== uri || !this.isTrackReady) {
         await this.loadTrack(uri);
       }
 
       const controller = await this.ensureHiddenController(uri);
+
+      // Her oynatma başında şarkıyı kesinlikle 0. saniyeye (en başa) sar
+      try {
+        controller.seek(0);
+      } catch { }
 
       // Şarkıyı başlat
       controller.play();
@@ -326,11 +290,11 @@ class SpotifyEmbedService {
         }
       }, 1200);
 
-      // Güvenlik zaman aşımı: Eğer ağ veya iframe hiç başlamazsa (429 gibi), döngüyü kırmak için sıfırla
+      // Güvenlik zaman aşımı: Eğer ağ veya iframe hiç başlamazsa, döngüyü kırmak için sıfırla
       const maxWait = Math.max(durationSeconds + 6, 10);
       this.safetyTimeoutId = window.setTimeout(() => {
         if (!this.hasStartedPlaying && this.isPlaying) {
-          console.warn('⚠️ [SpotifyEmbed] Oynatma zaman aşımına uğradı (Olası 429), iframe sıfırlanıyor.');
+          console.warn('⚠️ [SpotifyEmbed] Oynatma zaman aşımına uğradı, iframe sıfırlanıyor.');
           this.resetController();
           if (this.onEndCallback) {
             const cb = this.onEndCallback;
@@ -394,7 +358,7 @@ class SpotifyEmbedService {
   }
 
   /**
-   * Çalan klibi kesin olarak durdurur.
+   * Çalan klibi kesin olarak durdurur ve bir sonraki deneme için 00:00 (en başa) sarar.
    */
   public stopClip(): void {
     if (this.timerFallbackId !== null) {
@@ -423,10 +387,9 @@ class SpotifyEmbedService {
 
     if (this.controller) {
       try {
-        // Yalnızca pause() çağırıyoruz.
-        // Durdurulduğunda hemen seek(0) yapmamak Spotify'ın inmiş olan ses arabelleğini (buffer)
-        // korumasını sağlar ve sonraki oynatmalarda baştan indirmeyi önler.
+        // Durdurulduğunda hemen pause et ve bir sonraki deneme için 00:00 (en başa) sar
         this.controller.pause();
+        this.controller.seek(0);
       } catch {
         // Sessiz hata tolere
       }
@@ -515,31 +478,17 @@ class SpotifyEmbedService {
       } catch { }
     });
 
-    // 1. Priming (Sıfırıncı saniye pre-buffer) aşamasında ilk ses karesi geldiğinde:
-    if (this.isPriming) {
-      // Şarkı oynamaya başlayıp ilk veriyi aldığı an durdur ve başa al
-      if (!isPaused && (position > 0 || !isBuffering)) {
-        try {
-          this.controller?.pause();
-          this.controller?.seek(0);
-        } catch { }
-        if (this.primeResolve) {
-          this.primeResolve();
-        }
-        return;
-      }
-    }
-
-    // 2. UI/UX Senkronizasyonu:
-    // Süre sayacı butona basıldığı anda değil, ses fiziksel olarak başladığı anda (isPaused: false) tetiklenir!
-    if (this.isPlaying && !this.isPriming && !isPaused && !this.hasStartedPlaying) {
+    // 1. UI/UX Senkronizasyonu:
+    // Süre sayacı butona basıldığı anda değil, ses fiziksel olarak başladığı anda (isPaused: false) tetiklenir
+    if (this.isPlaying && !isPaused && !this.hasStartedPlaying) {
       this.startPlaybackTimer();
     }
 
-    // 3. Durdurulmuşken Spotify sonradan kendiliğinden çalmaya başladıysa:
-    if (!this.isPlaying && !this.isPriming && !isPaused) {
+    // 2. Durdurulmuşken Spotify sonradan kendiliğinden çalmaya başladıysa durdur ve 0'a sar
+    if (!this.isPlaying && !isPaused) {
       try {
         this.controller?.pause();
+        this.controller?.seek(0);
       } catch { }
       return;
     }
