@@ -95,32 +95,6 @@ export const RoomScoreboard: React.FC<RoomScoreboardProps> = ({ room, currentUse
         })}
       </div>
 
-      {/* Süreye Göre Puan Skalası Bilgi Kutusu */}
-      <div className={styles.scoringRulesCard}>
-        <div className={styles.scoringRulesTitle}>
-          <span>⏱️</span>
-          <span>Süreye Göre Puanlar</span>
-        </div>
-        <div className={styles.rulesGrid}>
-          <div className={styles.ruleItem}>
-            <span className={styles.ruleTime}>⚡ 0.1s</span>
-            <span className={styles.rulePts}>1000 P</span>
-          </div>
-          <div className={styles.ruleItem}>
-            <span className={styles.ruleTime}>🚀 0.5s</span>
-            <span className={styles.rulePts}>800 P</span>
-          </div>
-          <div className={styles.ruleItem}>
-            <span className={styles.ruleTime}>🎯 2.0s</span>
-            <span className={styles.rulePts}>600 P</span>
-          </div>
-          <div className={styles.ruleItem}>
-            <span className={styles.ruleTime}>⏳ 8.0s</span>
-            <span className={styles.rulePts}>400 P</span>
-          </div>
-        </div>
-      </div>
-
       {/* Davet Butonu */}
       <button type="button" className={styles.inviteBtn} onClick={handleCopyInvite}>
         <span>🔗</span>

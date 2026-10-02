@@ -10,6 +10,11 @@ interface StageControlBarProps {
   isPlaying: boolean;
   isSolved?: boolean;
   isWrong?: boolean;
+  isSongRevealed?: boolean;
+  score?: number;
+  potentialPoints?: number;
+  lastEarnedPoints?: number | null;
+  roundCountdownSeconds?: number;
   onBackHome: () => void;
 }
 
@@ -25,11 +30,22 @@ export const StageControlBar: React.FC<StageControlBarProps> = ({
   isPlaying,
   isSolved = false,
   isWrong = false,
+  isSongRevealed = false,
+  score = 0,
+  potentialPoints = 800,
+  lastEarnedPoints = null,
+  roundCountdownSeconds,
   onBackHome,
 }) => {
   const currentStage = STAGES[currentStageIndex] || STAGES[0];
 
-  const isFullBar = isSolved || (isWrong && currentDuration >= 15.0);
+  const formatCountdown = (totalSec: number) => {
+    const mins = Math.floor(Math.max(0, totalSec) / 60);
+    const secs = Math.max(0, totalSec) % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const isFullBar = isSolved || (isWrong && (isSongRevealed || currentDuration >= 15.0));
 
   const unlockedPercent = isFullBar
     ? 100
@@ -51,8 +67,10 @@ export const StageControlBar: React.FC<StageControlBarProps> = ({
   const cursorLeftPercent = isPlaying
     ? Math.min(unlockedPercent, Math.max(0, unlockedPercent * playbackRatio))
     : playbackSeconds > 0
-      ? Math.min(unlockedPercent, Math.max(0, unlockedPercent * (playbackSeconds / effectiveDuration)))
+      ? Math.min(unlockedPercent, Math.max(0, unlockedPercent * (isFullBar ? Math.min(1, (playbackSeconds % 30) / 30) : playbackSeconds / effectiveDuration)))
       : 0;
+
+  const showPlayhead = !isSongRevealed && (isPlaying || playbackSeconds > 0);
 
   return (
     <div
@@ -63,13 +81,15 @@ export const StageControlBar: React.FC<StageControlBarProps> = ({
         alignItems: 'center',
       }}
     >
-      {/* Sol Üst Mod Değiştir Butonu */}
+      {/* Üst Bar: Sol (Mod Değiştir) & Sağ (Süre, Aktif Puan ve Bilince Kazanılacak Puan) */}
       <div
         style={{
           width: '100%',
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'flex-start',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '0.75rem',
           marginBottom: '1rem',
         }}
       >
@@ -93,6 +113,167 @@ export const StageControlBar: React.FC<StageControlBarProps> = ({
           <i className="fa-solid fa-chevron-left" style={{ fontSize: '10px' }} />
           <span>Modu değiştir</span>
         </button>
+
+        {/* Durum Rozetleri (Geri Sayım Sayacı, Aktif Puan & Bilince Kazanılacak Puan) */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', flexWrap: 'wrap' }}>
+          {/* Şarkı Bilme Süresi Geri Sayım Rozeti */}
+          {roundCountdownSeconds !== undefined && (
+            <div
+              id="badge-round-countdown"
+              title="Şarkıyı bilmek için kalan süre. Süre dolarsa pes edilmiş sayılır."
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                padding: '0.375rem 0.875rem',
+                borderRadius: '9999px',
+                backgroundColor: 'rgba(17, 24, 39, 0.85)',
+                backdropFilter: 'blur(8px)',
+                border:
+                  !isSongRevealed && roundCountdownSeconds <= 15
+                    ? '1px solid rgba(239, 68, 68, 0.6)'
+                    : '1px solid rgba(129, 140, 248, 0.35)',
+                boxShadow:
+                  !isSongRevealed && roundCountdownSeconds <= 15
+                    ? '0 0 15px rgba(239, 68, 68, 0.35)'
+                    : '0 0 12px rgba(99, 102, 241, 0.15)',
+                fontSize: '0.75rem',
+                transition: 'all 200ms ease',
+              }}
+            >
+              <i
+                className="fa-solid fa-stopwatch"
+                style={{
+                  color:
+                    !isSongRevealed && roundCountdownSeconds <= 15
+                      ? '#f87171'
+                      : '#818cf8',
+                  fontSize: '0.8125rem',
+                  animation: !isSongRevealed && roundCountdownSeconds <= 15 ? 'pulse 1s infinite' : 'none',
+                }}
+              />
+              <span style={{ color: '#9ca3af', fontWeight: 600 }}>Süre:</span>
+              <span
+                className="font-mono-num"
+                style={{
+                  color:
+                    !isSongRevealed && roundCountdownSeconds <= 15
+                      ? '#f87171'
+                      : '#ffffff',
+                  fontWeight: 800,
+                  fontSize: '0.875rem',
+                  letterSpacing: '-0.02em',
+                }}
+              >
+                {formatCountdown(roundCountdownSeconds)}
+              </span>
+            </div>
+          )}
+          {/* Aktif Puan */}
+          <div
+            id="badge-active-score"
+            title="Toplam Puan"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.4rem',
+              padding: '0.375rem 0.875rem',
+              borderRadius: '9999px',
+              backgroundColor: 'rgba(17, 24, 39, 0.85)',
+              backdropFilter: 'blur(8px)',
+              border: '1px solid rgba(251, 191, 36, 0.35)',
+              boxShadow: '0 0 15px rgba(245, 158, 11, 0.15)',
+              fontSize: '0.75rem',
+            }}
+          >
+            <i className="fa-solid fa-trophy" style={{ color: '#fbbf24', fontSize: '0.8125rem' }} />
+            <span style={{ color: '#9ca3af', fontWeight: 600 }}>Puan:</span>
+            <span
+              className="font-mono-num"
+              style={{
+                color: '#fbbf24',
+                fontWeight: 800,
+                fontSize: '0.875rem',
+                letterSpacing: '-0.02em',
+              }}
+            >
+              {score.toLocaleString()}
+            </span>
+          </div>
+
+          {/* Şarkıyı Bilince Kazanılacak Puan */}
+          <div
+            id="badge-potential-score"
+            title={
+              isSongRevealed
+                ? isSolved
+                  ? 'Bu şarkıdan kazanılan puan'
+                  : 'Bu şarkıdan puan kazanılamadı'
+                : 'Şarkıyı bu denemede bilirsen kazanacağın puan'
+            }
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.4rem',
+              padding: '0.375rem 0.875rem',
+              borderRadius: '9999px',
+              backgroundColor: 'rgba(17, 24, 39, 0.85)',
+              backdropFilter: 'blur(8px)',
+              border: isSongRevealed
+                ? isSolved
+                  ? '1px solid rgba(16, 185, 129, 0.5)'
+                  : '1px solid rgba(239, 68, 68, 0.4)'
+                : '1px solid rgba(99, 102, 241, 0.4)',
+              boxShadow: isSongRevealed
+                ? isSolved
+                  ? '0 0 15px rgba(16, 185, 129, 0.25)'
+                  : 'none'
+                : '0 0 15px rgba(99, 102, 241, 0.2)',
+              fontSize: '0.75rem',
+              transition: 'all 200ms ease',
+            }}
+          >
+            <i
+              className={`fa-solid ${
+                isSongRevealed
+                  ? isSolved
+                    ? 'fa-circle-check'
+                    : 'fa-circle-xmark'
+                  : 'fa-bolt'
+              }`}
+              style={{
+                color: isSongRevealed
+                  ? isSolved
+                    ? '#34d399'
+                    : '#f87171'
+                  : '#818cf8',
+                fontSize: '0.8125rem',
+              }}
+            />
+            <span style={{ color: '#9ca3af', fontWeight: 600 }}>
+              {isSongRevealed ? 'Kazanılan:' : 'Bilince:'}
+            </span>
+            <span
+              className="font-mono-num"
+              style={{
+                color: isSongRevealed
+                  ? isSolved
+                    ? '#34d399'
+                    : '#f87171'
+                  : '#a5b4fc',
+                fontWeight: 800,
+                fontSize: '0.875rem',
+                letterSpacing: '-0.02em',
+              }}
+            >
+              {isSongRevealed
+                ? isSolved
+                  ? `+${lastEarnedPoints ?? potentialPoints}`
+                  : '+0'
+                : `+${potentialPoints}`}
+            </span>
+          </div>
+        </div>
       </div>
 
       {/* Zorluk Düzeyi Hapları */}
@@ -160,8 +341,8 @@ export const StageControlBar: React.FC<StageControlBarProps> = ({
           boxShadow: 'inset 0 2px 4px 0 rgba(0, 0, 0, 0.4)',
         }}
       >
-        {/* Canlı Saniye Gösteren İmleç (Playhead Cursor) */}
-        {(isPlaying || playbackSeconds > 0) && (
+        {/* Canlı Saniye Gösteren İmleç (Playhead Cursor) - Şarkı bilindiğinde veya geçildiğinde durdurulur */}
+        {showPlayhead && (
           <div
             style={{
               position: 'absolute',

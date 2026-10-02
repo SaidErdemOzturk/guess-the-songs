@@ -57,6 +57,55 @@ class WebAudioService {
     this.isPlaying = false;
   }
 
+  /**
+   * Şarkıyı kullanıcı sonraki şarkıya geçene kadar kesintisiz/sürekli çalar.
+   */
+  public async playSongContinuous(
+    song: Song,
+    onProgress?: AudioProgressCallback
+  ): Promise<void> {
+    this.stopCurrentAudio();
+    this.isPlaying = true;
+    this.currentProgressCallback = onProgress || null;
+
+    if (song.spotifyId) {
+      console.log(`🎧 [Spotify Embed] "${song.artist} - ${song.title}" sürekli çalınıyor...`);
+      const embedStarted = await spotifyEmbedService.playClip(
+        song.spotifyId,
+        0,
+        undefined,
+        onProgress,
+        true
+      );
+      if (embedStarted) {
+        return;
+      }
+    }
+
+    console.warn(`⚠️ [WebAudio] "${song.artist} - ${song.title}" için Spotify parçası başlatılamadı.`);
+    this.isPlaying = false;
+  }
+
+  /**
+   * Şarkıyı sıfırlamadan (en başa sarmadan) duraklatır.
+   */
+  public pauseAudio(): void {
+    spotifyEmbedService.pauseClip();
+    this.isPlaying = false;
+  }
+
+  /**
+   * Duraklatılan şarkıyı kaldığı saniyeden çalmaya devam ettirir.
+   */
+  public async resumeAudio(onProgress?: AudioProgressCallback): Promise<void> {
+    this.isPlaying = true;
+    this.currentProgressCallback = onProgress || null;
+    const resumed = await spotifyEmbedService.resumeContinuous(onProgress);
+    if (!resumed) {
+      this.isPlaying = false;
+    }
+  }
+
   public stopCurrentAudio(): void {
     spotifyEmbedService.stopClip();
     this.isPlaying = false;

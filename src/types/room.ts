@@ -1,5 +1,5 @@
 import type { User } from './auth';
-import type { EraFilter, GenreFilter, RegionFilter } from './song';
+import type { EraFilter, GenreFilter, RegionFilter, Song } from './song';
 
 export interface RoomParticipant {
   user: User;
@@ -17,6 +17,7 @@ export interface RoomSettings {
   region: RegionFilter;
   genre: GenreFilter;
   era: EraFilter;
+  guessTimeLimitMinutes?: number;
 }
 
 export interface Room {
@@ -26,14 +27,19 @@ export interface Room {
   hostId: string;
   hostName: string;
   participants: RoomParticipant[];
-  maxParticipants: number;
+  maxParticipants?: number;
+  guessTimeLimitMinutes?: number;
   status: RoomStatus;
   settings?: RoomSettings;
   createdAt: string;
+  currentSong?: Song | null;
+  currentRound?: number;
+  currentRoundStartedAt?: string;
 }
 
 export interface CreateRoomRequest {
   name: string;
   maxParticipants?: number;
+  guessTimeLimitMinutes?: number;
   settings?: RoomSettings;
 }

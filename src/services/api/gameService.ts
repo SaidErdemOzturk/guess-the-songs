@@ -16,20 +16,23 @@ import type {
 /**
  * Hangi sürede bildiğine göre puan hesaplama fonksiyonu:
  * - 0.1 saniye: 1000 Puan (Süper refleks)
- * - 0.5 saniye: 800 Puan
- * - 2.0 saniye: 600 Puan
- * - 8.0 saniye: 400 Puan
+ * - 0.5 saniye (1. Durum): 800 Puan
+ * - 2.0 saniye (2. Durum): 600 Puan
+ * - 8.0 saniye (3. Durum): 400 Puan
+ * - 15.0 saniye (4. Durum): 200 Puan
  */
 export function calculatePointsByDuration(duration: number, difficultyRank = 1): number {
-  let basePoints = 400;
+  let basePoints = 200;
   if (duration <= 0.15) {
     basePoints = 1000;
   } else if (duration <= 0.55) {
     basePoints = 800;
   } else if (duration <= 2.05) {
     basePoints = 600;
-  } else {
+  } else if (duration <= 8.05) {
     basePoints = 400;
+  } else {
+    basePoints = 200;
   }
 
   // Şarkı zorluk derecesi çarpanı (1x - 1.4x)

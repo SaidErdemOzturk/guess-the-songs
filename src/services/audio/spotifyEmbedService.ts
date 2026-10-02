@@ -23,6 +23,7 @@ class SpotifyEmbedService {
   private clipStartTime: number = 0;
   private animationFrameId: number | null = null;
   private lastPlayTime: number = 0;
+  private pausedElapsed: number = 0;
 
   /**
    * Spotify iFrame API scriptini dinamik olarak yükler ve hazır olduğunda IFrameAPI örneğini döner.
@@ -97,6 +98,7 @@ class SpotifyEmbedService {
     });
   }
 
+  private isContinuous: boolean = false;
   private isTrackReady: boolean = false;
   private trackReadyListeners: ((e: SpotifyEmbedPlaybackUpdate) => void)[] = [];
   private hasStartedPlaying: boolean = false;
@@ -234,7 +236,8 @@ class SpotifyEmbedService {
     trackUriOrId: string,
     durationSeconds: number,
     onEnd?: () => void,
-    onProgress?: ProgressCallback
+    onProgress?: ProgressCallback,
+    continuous: boolean = false
   ): Promise<boolean> {
     // Çok hızlı ardışık çift tıklamaları engelle
     const now = performance.now();
@@ -257,7 +260,9 @@ class SpotifyEmbedService {
 
     this.stopClip();
     this.isPlaying = true;
+    this.isContinuous = continuous;
     this.hasStartedPlaying = false;
+    this.pausedElapsed = 0;
     this.targetDuration = durationSeconds;
     this.currentProgressCallback = onProgress || null;
     this.onEndCallback = onEnd || null;
@@ -290,19 +295,21 @@ class SpotifyEmbedService {
         }
       }, 1200);
 
-      // Güvenlik zaman aşımı: Eğer ağ veya iframe hiç başlamazsa, döngüyü kırmak için sıfırla
-      const maxWait = Math.max(durationSeconds + 6, 10);
-      this.safetyTimeoutId = window.setTimeout(() => {
-        if (!this.hasStartedPlaying && this.isPlaying) {
-          console.warn('⚠️ [SpotifyEmbed] Oynatma zaman aşımına uğradı, iframe sıfırlanıyor.');
-          this.resetController();
-          if (this.onEndCallback) {
-            const cb = this.onEndCallback;
-            this.onEndCallback = null;
-            cb();
+      // Güvenlik zaman aşımı: Eğer ağ veya iframe hiç başlamazsa, döngüyü kırmak için sıfırla (kesintisiz modda uygulanmaz)
+      if (!continuous) {
+        const maxWait = Math.max(durationSeconds + 6, 10);
+        this.safetyTimeoutId = window.setTimeout(() => {
+          if (!this.hasStartedPlaying && this.isPlaying) {
+            console.warn('⚠️ [SpotifyEmbed] Oynatma zaman aşımına uğradı, iframe sıfırlanıyor.');
+            this.resetController();
+            if (this.onEndCallback) {
+              const cb = this.onEndCallback;
+              this.onEndCallback = null;
+              cb();
+            }
           }
-        }
-      }, maxWait * 1000);
+        }, maxWait * 1000);
+      }
 
       return true;
     } catch (err) {
@@ -324,11 +331,20 @@ class SpotifyEmbedService {
     }
 
     this.hasStartedPlaying = true;
-    this.clipStartTime = performance.now();
+    this.clipStartTime = performance.now() - (this.pausedElapsed * 1000);
 
     const updateProgress = () => {
       if (!this.isPlaying) return;
       const elapsed = (performance.now() - this.clipStartTime) / 1000;
+
+      if (this.isContinuous) {
+        if (this.currentProgressCallback) {
+          this.currentProgressCallback(elapsed, (elapsed % 30) / 30);
+        }
+        this.animationFrameId = requestAnimationFrame(updateProgress);
+        return;
+      }
+
       const clamped = Math.min(this.targetDuration, Math.max(0, elapsed));
       const ratio = this.targetDuration > 0 ? clamped / this.targetDuration : 0;
 
@@ -343,18 +359,104 @@ class SpotifyEmbedService {
 
     this.animationFrameId = requestAnimationFrame(updateProgress);
 
-    const playDurationMs = this.targetDuration * 1000;
+    if (!this.isContinuous) {
+      const remainingDuration = Math.max(0, this.targetDuration - this.pausedElapsed);
+      const playDurationMs = remainingDuration * 1000;
 
-    this.stopTimeoutId = window.setTimeout(() => {
-      if (this.currentProgressCallback) {
-        this.currentProgressCallback(this.targetDuration, 1);
+      this.stopTimeoutId = window.setTimeout(() => {
+        if (this.currentProgressCallback) {
+          this.currentProgressCallback(this.targetDuration, 1);
+        }
+        const cb = this.onEndCallback;
+        this.stopClip();
+        if (cb) {
+          cb();
+        }
+      }, playDurationMs);
+    }
+  }
+
+  /**
+   * Çalan şarkıyı sıfırlamadan (en başa sarmadan), kaldığı saniyede duraklatır.
+   */
+  public pauseClip(): void {
+    if (this.timerFallbackId !== null) {
+      clearTimeout(this.timerFallbackId);
+      this.timerFallbackId = null;
+    }
+
+    if (this.stopTimeoutId !== null) {
+      clearTimeout(this.stopTimeoutId);
+      this.stopTimeoutId = null;
+    }
+
+    if (this.safetyTimeoutId !== null) {
+      clearTimeout(this.safetyTimeoutId);
+      this.safetyTimeoutId = null;
+    }
+
+    if (this.animationFrameId !== null) {
+      cancelAnimationFrame(this.animationFrameId);
+      this.animationFrameId = null;
+    }
+
+    if (this.hasStartedPlaying) {
+      this.pausedElapsed = Math.max(0, (performance.now() - this.clipStartTime) / 1000);
+    }
+
+    this.isPlaying = false;
+    this.hasStartedPlaying = false;
+
+    if (this.controller) {
+      try {
+        // Kesinlikle seek(0) YAPILMAZ! Sadece pause edilir.
+        this.controller.pause();
+      } catch {
+        // Sessiz hata tolere
       }
-      const cb = this.onEndCallback;
-      this.stopClip();
-      if (cb) {
-        cb();
+    }
+
+    const container = document.getElementById('spotify-embed-background-player');
+    if (container) {
+      const iframe = container.querySelector('iframe') as HTMLIFrameElement | null;
+      if (iframe && iframe.contentWindow) {
+        try {
+          iframe.contentWindow.postMessage({ command: 'pause' }, '*');
+        } catch { }
       }
-    }, playDurationMs);
+    }
+  }
+
+  /**
+   * Duraklatılan kesintisiz şarkıyı kaldığı saniyeden devam ettirir (en başa sarmaz).
+   */
+  public async resumeContinuous(onProgress?: ProgressCallback): Promise<boolean> {
+    if (!this.controller || !this.currentTrackUri) {
+      return false;
+    }
+
+    this.isPlaying = true;
+    this.isContinuous = true;
+    this.hasStartedPlaying = false;
+    if (onProgress) {
+      this.currentProgressCallback = onProgress;
+    }
+
+    try {
+      // Kesinlikle seek(0) ÇAĞRILMAZ, doğrudan play/resume emri verilir
+      this.controller.play();
+
+      this.timerFallbackId = window.setTimeout(() => {
+        if (this.isPlaying && !this.hasStartedPlaying) {
+          this.startPlaybackTimer();
+        }
+      }, 1200);
+
+      return true;
+    } catch (err) {
+      console.error('❌ [SpotifyEmbedService] resumeContinuous hatası:', err);
+      return false;
+    }
   }
 
   /**
@@ -382,8 +484,10 @@ class SpotifyEmbedService {
     }
 
     this.isPlaying = false;
+    this.isContinuous = false;
     this.hasStartedPlaying = false;
     this.onEndCallback = null;
+    this.pausedElapsed = 0;
 
     if (this.controller) {
       try {
@@ -413,6 +517,8 @@ class SpotifyEmbedService {
    */
   public resetController(): void {
     this.stopClip();
+    this.isContinuous = false;
+    this.pausedElapsed = 0;
     if (this.primeTimeoutId !== null) {
       clearTimeout(this.primeTimeoutId);
       this.primeTimeoutId = null;
@@ -489,6 +595,15 @@ class SpotifyEmbedService {
       try {
         this.controller?.pause();
         this.controller?.seek(0);
+      } catch { }
+      return;
+    }
+
+    // 3. Kesintisiz oynatma modundayken parça/önizleme bittiğinde başa sarıp kesintisiz çalmaya devam et
+    if (this.isPlaying && this.isContinuous && isPaused && this.hasStartedPlaying) {
+      try {
+        this.controller?.seek(0);
+        this.controller?.play();
       } catch { }
       return;
     }

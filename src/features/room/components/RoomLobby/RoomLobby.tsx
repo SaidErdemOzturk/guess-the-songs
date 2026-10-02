@@ -164,9 +164,23 @@ export const RoomLobby: React.FC<RoomLobbyProps> = ({
             }}
           >
             <h4 style={{ fontSize: '0.875rem', fontWeight: 700, color: '#e2e8f0' }}>
-              Oyuncular ({room.participants.length} / {room.maxParticipants})
+              Oyuncular ({room.participants.length})
             </h4>
-            <span style={{ fontSize: '0.75rem', color: '#6b7280' }}>Hazır bekleniyor</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <span
+                style={{
+                  fontSize: '0.75rem',
+                  color: '#818cf8',
+                  backgroundColor: 'rgba(99, 102, 241, 0.15)',
+                  padding: '0.2rem 0.5rem',
+                  borderRadius: '9999px',
+                  fontWeight: 600,
+                }}
+              >
+                ⏱ {room.guessTimeLimitMinutes || 1} Dakika
+              </span>
+              <span style={{ fontSize: '0.75rem', color: '#6b7280' }}>Hazır bekleniyor</span>
+            </div>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>

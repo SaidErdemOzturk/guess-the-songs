@@ -15,6 +15,7 @@ export interface CreateGameSessionRequest {
   genre: GenreFilter;
   era: EraFilter;
   artist?: string;
+  guessTimeLimitMinutes?: number;
 }
 
 export interface GameSession {

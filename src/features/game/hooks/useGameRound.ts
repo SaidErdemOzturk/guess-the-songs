@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ATTEMPT_DURATIONS, STAGES } from '@/constants/game';
-import { gameService } from '@/services/api/gameService';
+import { calculatePointsByDuration, gameService } from '@/services/api/gameService';
 import { roomService } from '@/services/api/roomService';
 import { songService } from '@/services/api/songService';
 import { webAudioService } from '@/services/audio/webAudioService';
@@ -14,6 +14,7 @@ export interface FeedbackState {
 export interface UseGameRoundOptions {
   roomCode?: string | null;
   userId?: string | null;
+  guessTimeLimitMinutes?: number;
   onScoreUpdate?: (points: number, duration: number, totalScore: number) => void;
 }
 
@@ -30,6 +31,14 @@ export function useGameRound(options?: UseGameRoundOptions) {
   const [isGameOver, setIsGameOver] = useState(false);
   const [selectedCustomArtist, setSelectedCustomArtist] = useState<string | null>(null);
   const [score, setScore] = useState(0);
+  const [lastEarnedPoints, setLastEarnedPoints] = useState<number | null>(null);
+  const isRoomMode = Boolean(options?.roomCode);
+  const [guessTimeLimitMinutes, setGuessTimeLimitMinutes] = useState<number | undefined>(
+    isRoomMode ? (options?.guessTimeLimitMinutes || 1) : undefined
+  );
+  const [roundCountdownSeconds, setRoundCountdownSeconds] = useState<number | undefined>(
+    isRoomMode ? ((options?.guessTimeLimitMinutes || 1) * 60) : undefined
+  );
   const [isGuessLocked, setIsGuessLocked] = useState(false);
   const [isLoadingSong, setIsLoadingSong] = useState(true);
 
@@ -45,6 +54,25 @@ export function useGameRound(options?: UseGameRoundOptions) {
   const currentStage: GameStage = STAGES[currentStageIndex] || STAGES[0];
   const activeDuration: number = isGuessLocked ? 8.0 : (ATTEMPT_DURATIONS[currentAttemptIndex] || 0.5);
 
+  const potentialPoints = calculatePointsByDuration(
+    activeDuration,
+    currentSong?.difficultyRank || 1
+  );
+
+  // Oda ayarlarından gelen süre sınırı güncellenirse senkronize et (Sadece oda modunda)
+  useEffect(() => {
+    if (!options?.roomCode) {
+      setGuessTimeLimitMinutes(undefined);
+      setRoundCountdownSeconds(undefined);
+      return;
+    }
+
+    if (options.guessTimeLimitMinutes && options.guessTimeLimitMinutes !== guessTimeLimitMinutes) {
+      setGuessTimeLimitMinutes(options.guessTimeLimitMinutes);
+      setRoundCountdownSeconds(options.guessTimeLimitMinutes * 60);
+    }
+  }, [options?.roomCode, options?.guessTimeLimitMinutes, guessTimeLimitMinutes]);
+
   // Yeni oyun başlatma (İlk aşama olan 'Kolay' için ilgili bölgenin playlistini çeker)
   const startNewGame = useCallback(async (params: CreateGameSessionRequest) => {
     webAudioService.stopCurrentAudio();
@@ -58,13 +86,39 @@ export function useGameRound(options?: UseGameRoundOptions) {
     setCurrentStageIndex(0);
     setCurrentAttemptIndex(0);
     setScore(0);
+    setLastEarnedPoints(null);
+
+    if (options?.roomCode) {
+      const timeLimit = params.guessTimeLimitMinutes || options?.guessTimeLimitMinutes || 1;
+      setGuessTimeLimitMinutes(timeLimit);
+      setRoundCountdownSeconds(timeLimit * 60);
+    } else {
+      setGuessTimeLimitMinutes(undefined);
+      setRoundCountdownSeconds(undefined);
+    }
+
     setSelectedCustomArtist(params.artist || null);
 
     const chosenRegion = params.region === 'global' ? 'global' : 'tr';
     setCurrentRegion(chosenRegion);
 
-    // 1. Aşama (Kolay) playlistini çek ve parçayı başlat
-    const initialSong = await songService.getRandomSongForStage(chosenRegion, 0);
+    // 1. Aşama (Kolay) playlistini çek veya odada önceden belirlenmiş ortak şarkıyı al
+    let initialSong: Song | null = null;
+    if (options?.roomCode) {
+      const room = await roomService.getRoomByCode(options.roomCode);
+      if (room?.currentSong) {
+        initialSong = room.currentSong;
+      }
+    }
+
+    if (!initialSong) {
+      initialSong = await songService.getRandomSongForStage(chosenRegion, 0);
+      if (options?.roomCode) {
+        // Odaya ortak şarkıyı bildir, herkes aynı şarkıyı dinlesin!
+        roomService.setCurrentSong(options.roomCode, initialSong, 1);
+      }
+    }
+
     setSongsPool([initialSong]);
     setCurrentSong(initialSong);
 
@@ -73,11 +127,26 @@ export function useGameRound(options?: UseGameRoundOptions) {
     setIsLoadingSong(false);
 
     await gameService.createSession(params);
-  }, []);
+  }, [options]);
 
   // Ses klibi çalma / durdurma (anlık saniye imleci takipli)
   const togglePlay = useCallback(() => {
-    if (!currentSong || isLoadingSong || isGuessLocked) return;
+    if (!currentSong || isLoadingSong) return;
+
+    // Şarkı çözülmüş veya pes edilmiş durumdayken duraklat / kaldığı yerden devam ettir (baştan başlamaz)
+    if (isGuessLocked) {
+      if (isPlaying) {
+        webAudioService.pauseAudio();
+        setIsPlaying(false);
+      } else {
+        setIsPlaying(true);
+        webAudioService.resumeAudio((sec, ratio) => {
+          setPlaybackSeconds(sec);
+          setPlaybackRatio(ratio);
+        });
+      }
+      return;
+    }
 
     clearResetTimer();
     if (feedback?.message === 'Yanlış tahmin!') {
@@ -119,7 +188,131 @@ export function useGameRound(options?: UseGameRoundOptions) {
         }
       );
     }
-  }, [currentSong, activeDuration, isPlaying, isLoadingSong, isGuessLocked, clearResetTimer, feedback]);
+  }, [currentSong, isLoadingSong, isGuessLocked, isPlaying, clearResetTimer, feedback, activeDuration]);
+
+  // Pes etme / Süre bitimi işlemi
+  const handleGiveUp = useCallback(
+    (isTimeout = false) => {
+      if (isGuessLocked || !currentSong) return;
+
+      clearResetTimer();
+      webAudioService.stopCurrentAudio();
+      setIsPlaying(false);
+      setPlaybackSeconds(0);
+      setPlaybackRatio(0);
+
+      setIsGuessLocked(true);
+      setLastEarnedPoints(0);
+      setFeedback({
+        isSuccess: false,
+        message: isTimeout
+          ? `Süre doldu! Doğru parça: ${currentSong.artist} - ${currentSong.title}`
+          : `Bilemedin! Doğru parça: ${currentSong.artist} - ${currentSong.title}`,
+      });
+
+      clearResetTimer();
+      setIsPlaying(true);
+      setPlaybackSeconds(0);
+      setPlaybackRatio(0);
+
+      webAudioService.playSongContinuous(
+        currentSong,
+        (sec, ratio) => {
+          setPlaybackSeconds(sec);
+          setPlaybackRatio(ratio);
+        }
+      );
+    },
+    [isGuessLocked, currentSong, clearResetTimer]
+  );
+
+  // Şarkıyı bilme süresi geri sayımı (YALNIZCA ODA İÇERİSİNDEYSE çalışır)
+  useEffect(() => {
+    if (!options?.roomCode || isGuessLocked || isGameOver || isLoadingSong) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setRoundCountdownSeconds((prev) => {
+        if (prev === undefined) return undefined;
+        if (prev <= 1) {
+          clearInterval(intervalId);
+          handleGiveUp(true);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(intervalId);
+  }, [options?.roomCode, isGuessLocked, isGameOver, isLoadingSong, handleGiveUp]);
+
+  // Oda modunda senkronize ortak şarkıyı WebSocket üzerinden dinle
+  useEffect(() => {
+    if (!options?.roomCode) return;
+
+    const unsubscribe = roomService.onSongChanged(options.roomCode, async (syncSong, round) => {
+      if (!currentSong || currentSong.id !== syncSong.id) {
+        clearResetTimer();
+        webAudioService.stopCurrentAudio();
+        setIsPlaying(false);
+        setPlaybackSeconds(0);
+        setPlaybackRatio(0);
+        setIsGuessLocked(false);
+        setFeedback(null);
+        setLastEarnedPoints(null);
+        setCurrentSong(syncSong);
+        setCurrentStageIndex(Math.max(0, round - 1));
+        setCurrentAttemptIndex(0);
+        setIsLoadingSong(true);
+        await webAudioService.preloadSong(syncSong);
+        setIsLoadingSong(false);
+      }
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [options?.roomCode, currentSong, clearResetTimer]);
+
+  // Sıradaki şarkıya geçme fonksiyonu (Kullanıcı dilediği an butona basarak geçer)
+  const goToNextSong = useCallback(async () => {
+    clearResetTimer();
+    webAudioService.stopCurrentAudio();
+    setIsPlaying(false);
+    setPlaybackSeconds(0);
+    setPlaybackRatio(0);
+    setIsGuessLocked(false);
+    setLastEarnedPoints(null);
+    if (options?.roomCode && guessTimeLimitMinutes) {
+      setRoundCountdownSeconds(guessTimeLimitMinutes * 60);
+    } else {
+      setRoundCountdownSeconds(undefined);
+    }
+
+    if (currentStageIndex < STAGES.length - 1) {
+      const nextStage = currentStageIndex + 1;
+      setCurrentStageIndex(nextStage);
+      setCurrentAttemptIndex(0);
+      setFeedback(null);
+
+      setIsLoadingSong(true);
+      // Zorluk değiştiğinde o zorluğun playlistinden şarkıyı çek ve odaya bildir
+      const nextSong = await songService.getRandomSongForStage(currentRegion, nextStage);
+      setCurrentSong(nextSong);
+      if (options?.roomCode) {
+        roomService.setCurrentSong(options.roomCode, nextSong, nextStage + 1);
+      }
+      await webAudioService.preloadSong(nextSong);
+      setIsLoadingSong(false);
+    } else {
+      setIsGameOver(true);
+      setFeedback({
+        isSuccess: true,
+        message: `Mükemmel! ${STAGES.length} aşamayı da başarıyla tamamladın!`,
+      });
+    }
+  }, [clearResetTimer, currentRegion, currentStageIndex, guessTimeLimitMinutes, options?.roomCode]);
 
   // Yanlış tahmin veya 'Geç' basıldığında denemeyi ilerletme
   const advanceAttempt = useCallback(() => {
@@ -136,64 +329,9 @@ export function useGameRound(options?: UseGameRoundOptions) {
       setCurrentAttemptIndex(nextAttempt);
     } else {
       // Tüm denemeler bitti / Pes Edildi - Bu aşama başarısız
-      if (currentSong) {
-        setIsGuessLocked(true);
-        setFeedback({
-          isSuccess: false,
-          message: `Bilemedin! Doğru parça: ${currentSong.artist} - ${currentSong.title}`,
-        });
-
-        // Pes edince şarkı yine de 8 saniye boyunca çalsın!
-        clearResetTimer();
-        const REVEAL_PLAY_DURATION = 8.0;
-        setIsPlaying(true);
-        setPlaybackSeconds(0);
-        setPlaybackRatio(0);
-
-        webAudioService.playSongClip(
-          currentSong,
-          REVEAL_PLAY_DURATION,
-          () => {
-            setIsPlaying(false);
-            setPlaybackSeconds(REVEAL_PLAY_DURATION);
-            setPlaybackRatio(1);
-          },
-          (sec, ratio) => {
-            setPlaybackSeconds(sec);
-            setPlaybackRatio(ratio);
-          }
-        );
-
-        setTimeout(async () => {
-          webAudioService.stopCurrentAudio();
-          setIsPlaying(false);
-          setPlaybackSeconds(0);
-          setPlaybackRatio(0);
-          setIsGuessLocked(false);
-
-          if (currentStageIndex < STAGES.length - 1) {
-            const nextStage = currentStageIndex + 1;
-            setCurrentStageIndex(nextStage);
-            setCurrentAttemptIndex(0);
-            setFeedback(null);
-
-            setIsLoadingSong(true);
-            // Zorluk değiştiğinde o zorluğun playlistinden şarkıyı çek
-            const nextSong = await songService.getRandomSongForStage(currentRegion, nextStage);
-            setCurrentSong(nextSong);
-            await webAudioService.preloadSong(nextSong);
-            setIsLoadingSong(false);
-          } else {
-            setIsGameOver(true);
-            setFeedback({
-              isSuccess: false,
-              message: 'Oyun Bitti! Tüm aşamaları tamamladın.',
-            });
-          }
-        }, 8500);
-      }
+      handleGiveUp(false);
     }
-  }, [currentAttemptIndex, currentRegion, currentSong, currentStageIndex, isGuessLocked]);
+  }, [currentAttemptIndex, isGuessLocked, clearResetTimer, handleGiveUp]);
 
   // Tahmin onaylama — Service isteği çalışır ve hangi sürede bildiyse ona göre puan eklenir
   const submitGuess = useCallback(
@@ -228,10 +366,11 @@ export function useGameRound(options?: UseGameRoundOptions) {
       const response = await gameService.submitGuess(request, currentSong, chosenSong.title);
 
       if (response.isCorrect) {
-        // Doğru Tahmin: Girişleri ve butonları kilitle
+        // Doğru Tahmin: Girişleri ve tahmin alanını kilitle
         setIsGuessLocked(true);
 
         const earned = response.pointsEarned;
+        setLastEarnedPoints(earned);
         setScore((prev) => {
           const nextScore = prev + earned;
           options?.onScoreUpdate?.(earned, activeDuration, nextScore);
@@ -253,55 +392,19 @@ export function useGameRound(options?: UseGameRoundOptions) {
           message: response.message,
         });
 
-        // Şarkıyı bilince otomatik olarak tekrar başlasın ve 8 saniye boyunca çalsın!
+        // Şarkıyı bilince kesintisiz olarak sürekli çalsın! Kullanıcı dilediği an sonraki şarkıya geçer
         clearResetTimer();
-        const VICTORY_PLAY_DURATION = 8.0;
         setIsPlaying(true);
         setPlaybackSeconds(0);
         setPlaybackRatio(0);
 
-        webAudioService.playSongClip(
+        webAudioService.playSongContinuous(
           currentSong,
-          VICTORY_PLAY_DURATION,
-          () => {
-            setIsPlaying(false);
-            setPlaybackSeconds(VICTORY_PLAY_DURATION);
-            setPlaybackRatio(1);
-          },
           (sec, ratio) => {
             setPlaybackSeconds(sec);
             setPlaybackRatio(ratio);
           }
         );
-
-        // 8 saniye çalma tamamlandıktan sonra bir sonraki aşamaya geç
-        setTimeout(async () => {
-          webAudioService.stopCurrentAudio();
-          setIsPlaying(false);
-          setPlaybackSeconds(0);
-          setPlaybackRatio(0);
-          setIsGuessLocked(false);
-
-          if (currentStageIndex < STAGES.length - 1) {
-            const nextStage = currentStageIndex + 1;
-            setCurrentStageIndex(nextStage);
-            setCurrentAttemptIndex(0);
-            setFeedback(null);
-
-            setIsLoadingSong(true);
-            // Zorluk değiştiğinde o zorluğun playlistinden şarkıyı çek
-            const nextSong = await songService.getRandomSongForStage(currentRegion, nextStage);
-            setCurrentSong(nextSong);
-            await webAudioService.preloadSong(nextSong);
-            setIsLoadingSong(false);
-          } else {
-            setIsGameOver(true);
-            setFeedback({
-              isSuccess: true,
-              message: `Mükemmel! ${STAGES.length} aşamayı da başarıyla tamamladın!`,
-            });
-          }
-        }, 8500);
       } else {
         // Yanlış Tahmin: Süre barı kırmızı olsun ve kullanıcıya bildirim verilsin
         if (currentAttemptIndex < ATTEMPT_DURATIONS.length - 1) {
@@ -322,9 +425,9 @@ export function useGameRound(options?: UseGameRoundOptions) {
       currentAttemptIndex,
       activeDuration,
       currentStageIndex,
-      currentRegion,
       options,
       advanceAttempt,
+      clearResetTimer,
     ]
   );
 
@@ -351,6 +454,10 @@ export function useGameRound(options?: UseGameRoundOptions) {
     feedback,
     isGameOver,
     score,
+    potentialPoints,
+    lastEarnedPoints,
+    roundCountdownSeconds,
+    guessTimeLimitMinutes,
     selectedCustomArtist,
     isGuessLocked,
     isSongRevealed,
@@ -358,5 +465,6 @@ export function useGameRound(options?: UseGameRoundOptions) {
     togglePlay,
     advanceAttempt,
     submitGuess,
+    goToNextSong,
   };
 }

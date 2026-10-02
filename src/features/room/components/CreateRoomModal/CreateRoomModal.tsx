@@ -17,7 +17,7 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
 }) => {
   const { user, token } = useAuth();
   const [roomName, setRoomName] = useState('');
-  const [maxParticipants, setMaxParticipants] = useState<number>(8);
+  const [guessTimeLimitMinutes, setGuessTimeLimitMinutes] = useState<number>(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -37,7 +37,7 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
       const room = await roomService.createRoom(
         {
           name: roomName.trim() || `${user.name}'in Odası`,
-          maxParticipants,
+          guessTimeLimitMinutes: Math.max(1, guessTimeLimitMinutes),
         },
         user,
         token
@@ -50,6 +50,8 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
       setIsSubmitting(false);
     }
   };
+
+  const presetMinutes = [1, 2, 3, 5];
 
   return (
     <div
@@ -124,7 +126,7 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
           </div>
         )}
 
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.125rem' }}>
           <Input
             label="Oda Adı"
             placeholder={`${user?.name || 'Müzik'} Odası`}
@@ -135,27 +137,56 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
           <div>
             <label
               style={{
-                display: 'block',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
                 fontSize: '0.75rem',
-                fontWeight: 500,
-                color: '#9ca3af',
-                marginBottom: '0.375rem',
+                fontWeight: 600,
+                color: '#d1d5db',
+                marginBottom: '0.5rem',
               }}
             >
-              Maksimum Oyuncu Sayısı: {maxParticipants}
+              <span>⏱ Şarkıyı Bilme Süresi</span>
+              <span style={{ color: '#818cf8', fontWeight: 700 }}>
+                {guessTimeLimitMinutes} Dakika ({guessTimeLimitMinutes * 60} sn)
+              </span>
             </label>
-            <input
-              type="range"
-              min="2"
-              max="16"
-              step="1"
-              value={maxParticipants}
-              onChange={(e) => setMaxParticipants(parseInt(e.target.value, 10))}
-              style={{ width: '100%', cursor: 'pointer' }}
-            />
+
+            {/* Hızlı Seçim Butonları */}
+            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.625rem' }}>
+              {presetMinutes.map((mins) => {
+                const isSelected = guessTimeLimitMinutes === mins;
+                return (
+                  <button
+                    key={mins}
+                    type="button"
+                    onClick={() => setGuessTimeLimitMinutes(mins)}
+                    style={{
+                      flex: 1,
+                      padding: '0.5rem',
+                      borderRadius: '0.75rem',
+                      fontSize: '0.8125rem',
+                      fontWeight: isSelected ? 700 : 500,
+                      backgroundColor: isSelected ? 'rgba(99, 102, 241, 0.3)' : 'rgba(31, 41, 55, 0.7)',
+                      border: isSelected ? '1px solid #818cf8' : '1px solid rgba(255, 255, 255, 0.1)',
+                      color: isSelected ? '#ffffff' : '#9ca3af',
+                      boxShadow: isSelected ? '0 0 12px rgba(99, 102, 241, 0.35)' : 'none',
+                      cursor: 'pointer',
+                      transition: 'all 150ms ease',
+                    }}
+                  >
+                    {mins} Dk
+                  </button>
+                );
+              })}
+            </div>
+
+            <p style={{ fontSize: '0.6875rem', color: '#6b7280', margin: 0 }}>
+              Her şarkı için oyunculara tanınan süre. Süre dolduğunda seçim yapılmazsa otomatik olarak pes edilmiş sayılır.
+            </p>
           </div>
 
-          <Button type="submit" variant="primary" size="md" isLoading={isSubmitting} style={{ marginTop: '0.5rem' }}>
+          <Button type="submit" variant="primary" size="md" isLoading={isSubmitting} style={{ marginTop: '0.25rem' }}>
             Odayı Kur & Lobiye Geç
           </Button>
         </form>

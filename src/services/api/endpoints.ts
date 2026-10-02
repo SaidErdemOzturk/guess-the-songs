@@ -33,4 +33,17 @@ export const ENDPOINTS = {
     TOP: '/api/v1/leaderboard',
     SUBMIT: '/api/v1/leaderboard/submit',
   },
+
+  // Oda ve Çok Oyunculu Mod (RoomsController)
+  ROOMS: {
+    GET_ALL: '/api/rooms/getall',
+    GET_BY_CODE: '/api/rooms/getbycode',
+    CREATE: '/api/rooms/create',
+    JOIN: '/api/rooms/join',
+    UPDATE_SCORE: '/api/rooms/updatescore',
+    CHANGE_STATUS: '/api/rooms/changestatus',
+    LEADERBOARD: '/api/rooms/leaderboard',
+    SET_CURRENT_SONG: '/api/rooms/setcurrentsong',
+    GET_CURRENT_SONG: '/api/rooms/currentsong',
+  },
 } as const;

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { MainLayout } from '@/layouts/MainLayout';
 import { HomePage } from '@/pages/HomePage/HomePage';
 import { GamePage } from '@/pages/GamePage/GamePage';
+import { RoomGamePage } from '@/pages/RoomGamePage/RoomGamePage';
 import { LoginPage } from '@/pages/LoginPage/LoginPage';
 import { RoomPage } from '@/pages/RoomPage/RoomPage';
 import { CreateRoomModal } from '@/features/room/components/CreateRoomModal/CreateRoomModal';
@@ -98,6 +99,7 @@ export const AppRouter: React.FC = () => {
       region: room.settings?.region || 'tr',
       genre: room.settings?.genre || 'all',
       era: room.settings?.era || 'all',
+      guessTimeLimitMinutes: room.guessTimeLimitMinutes || room.settings?.guessTimeLimitMinutes || 1,
     });
     setViewMode('game');
   };
@@ -143,12 +145,19 @@ export const AppRouter: React.FC = () => {
         <HomePage onStartGame={handleStartGame} />
       )}
 
-      {viewMode === 'game' && (
+      {viewMode === 'game' && !activeRoomCode && (
         <GamePage
           sessionParams={sessionParams}
           onBackToHome={handleBackToHome}
+        />
+      )}
+
+      {viewMode === 'game' && activeRoomCode && (
+        <RoomGamePage
+          sessionParams={sessionParams}
           roomCode={activeRoomCode}
           currentUserId={user?.id}
+          onBackToHome={handleBackToHome}
         />
       )}
 
