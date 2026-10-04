@@ -20,7 +20,8 @@ class YouTubePlayerService {
   private progressInterval: ReturnType<typeof setInterval> | null = null;
   private clipTimeout: ReturnType<typeof setTimeout> | null = null;
   private activeOnEndCallback: (() => void) | null = null;
-  private playlistFetchQueue: Promise<any> = Promise.resolve();
+  private unplayableVideoIds: Set<string> = new Set();
+  private errorListeners: Set<(videoId: string, errorCode: number) => void> = new Set();
 
   /**
    * YouTube IFrame API scriptini dinamik olarak yükler ve hazır olmasını bekler.
@@ -172,6 +173,7 @@ class YouTubePlayerService {
             playsinline: 1,
             rel: 0,
             origin: window.location.origin,
+            widget_referrer: window.location.origin,
           },
           events: {
             onReady: (event) => {
@@ -190,7 +192,26 @@ class YouTubePlayerService {
               this.handleStateChange(event.data);
             },
             onError: (err) => {
-              console.warn('⚠️ [YouTubePlayerService] Player hatası:', err.data);
+              const errorCode = typeof err?.data === 'number' ? err.data : Number(err?.data) || -1;
+              const failedVideoId = this.currentVideoId;
+              console.warn(`⚠️ [YouTubePlayerService] Player hatası (kod: ${errorCode}) - Video: ${failedVideoId}`);
+
+              if (failedVideoId) {
+                this.unplayableVideoIds.add(failedVideoId);
+              }
+
+              // Oynatma süreci ve zamanlayıcıları sıfırla
+              this.isPlaying = false;
+              this.clearTimers();
+
+              // Dinleyicileri (örn: GameRound otomatik şarkı değiştirici) uyar
+              this.errorListeners.forEach((listener) => {
+                try {
+                  listener(failedVideoId || '', errorCode);
+                } catch (e) {
+                  console.error('Playback error listener hatası:', e);
+                }
+              });
             },
           },
         });
@@ -201,6 +222,33 @@ class YouTubePlayerService {
     });
 
     return this.playerReadyPromise;
+  }
+
+  /**
+   * Oynatma hatası dinleyicisi ekler (örn: 101/150 embed kısıtlaması durumunda otomatik geçiş için)
+   */
+  public onPlaybackError(listener: (videoId: string, errorCode: number) => void): () => void {
+    this.errorListeners.add(listener);
+    return () => {
+      this.errorListeners.delete(listener);
+    };
+  }
+
+  /**
+   * Bir videonun embed engeline (101/150) takılıp takılmadığını sorgular
+   */
+  public isVideoUnplayable(videoId?: string): boolean {
+    if (!videoId) return false;
+    return this.unplayableVideoIds.has(videoId);
+  }
+
+  /**
+   * Bir videoyu manuel olarak oynatılamaz işaretler
+   */
+  public markVideoUnplayable(videoId: string): void {
+    if (videoId) {
+      this.unplayableVideoIds.add(videoId);
+    }
   }
 
   /**
@@ -216,68 +264,6 @@ class YouTubePlayerService {
         this.stopClip();
       }
     }
-  }
-
-  /**
-   * YouTube IFrame API ile belirtilen playlist'teki video ID'lerini çeker.
-   * Eşzamanlı çağrıların birbirinin cuePlaylist durumunu ezmemesi için sıralı (queue) yürütür.
-   */
-  public async fetchPlaylistVideoIds(playlistId: string): Promise<string[]> {
-    if (!playlistId) return [];
-
-    return new Promise<string[]>((resolve) => {
-      this.playlistFetchQueue = this.playlistFetchQueue
-        .then(async () => {
-          try {
-            const player = await this.ensurePlayer();
-            const ids = await new Promise<string[]>((res) => {
-              let isResolved = false;
-              const done = (resultIds: string[]) => {
-                if (!isResolved) {
-                  isResolved = true;
-                  res(resultIds);
-                }
-              };
-
-              try {
-                player.cuePlaylist?.({
-                  list: playlistId,
-                  listType: 'playlist',
-                });
-              } catch {
-                return done([]);
-              }
-
-              const interval = setInterval(() => {
-                try {
-                  const list = player.getPlaylist?.();
-                  if (Array.isArray(list) && list.length > 0) {
-                    clearInterval(interval);
-                    done(list);
-                  }
-                } catch {}
-              }, 150);
-
-              setTimeout(() => {
-                clearInterval(interval);
-                try {
-                  const list = player.getPlaylist?.();
-                  done(Array.isArray(list) ? list : []);
-                } catch {
-                  done([]);
-                }
-              }, 1800);
-            });
-            resolve(ids);
-          } catch (err) {
-            console.warn('⚠️ [YouTubePlayerService] Playlist çekme hatası:', err);
-            resolve([]);
-          }
-        })
-        .catch(() => {
-          resolve([]);
-        });
-    });
   }
 
   /**

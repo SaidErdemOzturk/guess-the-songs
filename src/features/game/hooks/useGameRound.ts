@@ -53,6 +53,7 @@ export function useGameRound(options?: UseGameRoundOptions) {
 
   const currentStage: GameStage = STAGES[currentStageIndex] || STAGES[0];
   const activeDuration: number = isGuessLocked ? 8.0 : (ATTEMPT_DURATIONS[currentAttemptIndex] || 0.5);
+  const isSongRevealed = isGuessLocked || (feedback !== null && feedback.message.includes('Doğru parça:'));
 
   const potentialPoints = calculatePointsByDuration(
     activeDuration,
@@ -280,6 +281,55 @@ export function useGameRound(options?: UseGameRoundOptions) {
     };
   }, [options?.roomCode, currentSong, clearResetTimer]);
 
+  // YouTube oynatma hatası (101/150 embed engeli veya 100 video silinmesi) durumunda
+  // sessizlikte kalmamak için otomatik olarak sıradaki oynatılabilir şarkıya geçer
+  useEffect(() => {
+    const unsubscribe = webAudioService.onPlaybackError(async (failedVideoId, errorCode) => {
+      if (!currentSong || isGameOver || isSongRevealed) return;
+      if (failedVideoId && currentSong.youtubeId && currentSong.youtubeId !== failedVideoId) return;
+
+      console.warn(
+        `🚨 [GameRound] "${currentSong.artist} - ${currentSong.title}" (ID: ${failedVideoId}) telif/embed engeline takıldı (Hata: ${errorCode}). ` +
+        `Otomatik olarak yeni bir şarkı seçiliyor...`
+      );
+
+      clearResetTimer();
+      webAudioService.stopCurrentAudio();
+      setIsPlaying(false);
+      setPlaybackSeconds(0);
+      setPlaybackRatio(0);
+      setIsLoadingSong(true);
+
+      try {
+        const replacementSong = await songService.getRandomSongForStage(
+          currentRegion,
+          currentStageIndex,
+          currentSong.youtubeId || currentSong.id
+        );
+
+        if (replacementSong && (replacementSong.youtubeId !== currentSong.youtubeId || replacementSong.title !== currentSong.title)) {
+          console.log(`✨ [GameRound] Yeni parça yüklendi: "${replacementSong.artist} - ${replacementSong.title}"`);
+          setCurrentSong(replacementSong);
+          setSongsPool([replacementSong]);
+
+          if (options?.roomCode) {
+            roomService.setCurrentSong(options.roomCode, replacementSong, currentStageIndex + 1);
+          }
+
+          await webAudioService.preloadSong(replacementSong);
+        }
+      } catch (err) {
+        console.error('Alternatif şarkı yüklenirken hata oluştu:', err);
+      } finally {
+        setIsLoadingSong(false);
+      }
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [currentSong, isGameOver, isSongRevealed, currentStageIndex, currentRegion, options?.roomCode, clearResetTimer]);
+
   // Sıradaki şarkıya geçme fonksiyonu (Kullanıcı dilediği an butona basarak geçer)
   const goToNextSong = useCallback(async () => {
     clearResetTimer();
@@ -441,8 +491,6 @@ export function useGameRound(options?: UseGameRoundOptions) {
       webAudioService.stopCurrentAudio();
     };
   }, [clearResetTimer]);
-
-  const isSongRevealed = isGuessLocked || (feedback !== null && feedback.message.includes('Doğru parça:'));
 
   return {
     currentStageIndex,

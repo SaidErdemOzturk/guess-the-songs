@@ -146,6 +146,13 @@ class WebAudioService {
   public getIsMuted(): boolean {
     return this.isMuted;
   }
+
+  /**
+   * Oynatma hatası dinleyicisi (Örn: 101/150 embed engeli)
+   */
+  public onPlaybackError(listener: (videoId: string, errorCode: number) => void): () => void {
+    return youtubePlayerService.onPlaybackError(listener);
+  }
 }
 
 export const webAudioService = new WebAudioService();

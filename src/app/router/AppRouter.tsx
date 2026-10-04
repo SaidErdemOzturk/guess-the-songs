@@ -6,6 +6,7 @@ import { RoomGamePage } from '@/pages/RoomGamePage/RoomGamePage';
 import { LoginPage } from '@/pages/LoginPage/LoginPage';
 import { RoomPage } from '@/pages/RoomPage/RoomPage';
 import { CreateRoomModal } from '@/features/room/components/CreateRoomModal/CreateRoomModal';
+import { PlaylistViewer } from '@/components/PlaylistViewer';
 import { useAuth } from '@/features/auth/context/AuthContext';
 import type { CreateGameSessionRequest } from '@/types/game';
 import type { Room } from '@/types/room';
@@ -18,6 +19,7 @@ export const AppRouter: React.FC = () => {
   const [activeRoomCode, setActiveRoomCode] = useState<string | null>(null);
   const [pendingInviteCode, setPendingInviteCode] = useState<string | null>(null);
   const [isCreateRoomModalOpen, setIsCreateRoomModalOpen] = useState(false);
+  const [isPlaylistModalOpen, setIsPlaylistModalOpen] = useState(false);
 
   const [sessionParams, setSessionParams] = useState<CreateGameSessionRequest>({
     region: 'tr',
@@ -123,6 +125,7 @@ export const AppRouter: React.FC = () => {
       onNavigateHome={handleBackToHome}
       onLoginClick={() => setViewMode('login')}
       onCreateRoomClick={handleOpenCreateRoom}
+      onPlaylistViewerClick={() => setIsPlaylistModalOpen(true)}
       maxWidth={getContentMaxWidth()}
     >
       {viewMode === 'login' && (
@@ -167,6 +170,30 @@ export const AppRouter: React.FC = () => {
         onClose={() => setIsCreateRoomModalOpen(false)}
         onRoomCreated={handleRoomCreated}
       />
+
+      {/* Tokensiz Playlist Çekici Modal */}
+      {isPlaylistModalOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.75)',
+            backdropFilter: 'blur(8px)',
+            zIndex: 60,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '1rem',
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setIsPlaylistModalOpen(false);
+          }}
+        >
+          <div style={{ width: '100%', maxWidth: '46rem' }}>
+            <PlaylistViewer onClose={() => setIsPlaylistModalOpen(false)} />
+          </div>
+        </div>
+      )}
     </MainLayout>
   );
 };

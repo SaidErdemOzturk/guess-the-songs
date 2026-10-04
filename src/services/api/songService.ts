@@ -1,5 +1,6 @@
 import { youtubeService, getPlaylistIdByStage } from './youtubeService';
 import { resolveYouTubeId } from '@/services/audio/youtubeResolver';
+import { youtubePlayerService } from '@/services/audio/youtubePlayerService';
 import { cleanTurkishText } from '@/utils/formatters';
 import type { DifficultyLevel, Song, SongFilters, SongPoolStats } from '@/types/song';
 
@@ -168,10 +169,18 @@ export const songService = {
     }
 
     if (songs && songs.length > 0) {
-      let pool = excludeSongId
-        ? songs.filter((s) => s.id !== excludeSongId && s.youtubeId !== excludeSongId)
-        : songs;
-      if (pool.length === 0) pool = songs;
+      let pool = songs.filter((s) => {
+        if (excludeSongId && (s.id === excludeSongId || s.youtubeId === excludeSongId)) return false;
+        if (s.youtubeId && youtubePlayerService.isVideoUnplayable(s.youtubeId)) return false;
+        return true;
+      });
+
+      if (pool.length === 0) {
+        pool = songs.filter((s) => !s.youtubeId || !youtubePlayerService.isVideoUnplayable(s.youtubeId));
+      }
+      if (pool.length === 0) {
+        pool = songs;
+      }
 
       // İlgili aşamanın çalma listesinden rastgele (random) bir şarkı seç
       const randomIndex = Math.floor(Math.random() * pool.length);

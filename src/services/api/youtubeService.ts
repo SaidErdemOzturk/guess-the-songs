@@ -1,6 +1,5 @@
 import type { Song, DifficultyLevel } from '@/types/song';
 import { resolveYouTubeId } from '@/services/audio/youtubeResolver';
-import { youtubePlayerService } from '@/services/audio/youtubePlayerService';
 
 /**
  * YouTube Music & Video Çalma Listesi Konfigürasyonu
@@ -9,18 +8,18 @@ import { youtubePlayerService } from '@/services/audio/youtubePlayerService';
  */
 export const YOUTUBE_CURATED_PLAYLISTS = {
   // Türkiye Odaklı Çalma Listeleri (Doğrulanmış YouTube Çalma Listeleri)
-  TR_KOLAY: 'PLDIoUOhQQPlVr3qepMVRsDe4T8vNQsvno',
-  TR_ORTA: 'PLS9pu550w2vc',
-  TR_ZOR: 'PLzBgi-bjxcqI4VVcWjvCf1jjRyADbTIIT',
-  TR_UZMAN: 'PLRYrvC4-qoFwisleFnCRUUkrpJAx2nb_0',
-  TR_IMKANSIZ: 'PLS9pu550w2vc',
+  TR_KOLAY: 'PLLsaVfnObWeI',
+  TR_ORTA: 'PLG9Xzac0lz5M',
+  TR_ZOR: 'PLMMc0trqJIMY',
+  TR_UZMAN: 'PLMMc0trqJIMY',
+  TR_IMKANSIZ: 'PLMMc0trqJIMY',
 
   // Global Odaklı Çalma Listeleri (Doğrulanmış YouTube Çalma Listeleri)
-  GLOBAL_KOLAY: 'PLMC9KNkIncKtPzgY-5rmhvj7fax8fdxoj',
-  GLOBAL_ORTA: 'PLMC9KNkIncKtPzgY-5rmhvj7fax8fdxoj',
-  GLOBAL_ZOR: 'PLMC9KNkIncKtPzgY-5rmhvj7fax8fdxoj',
-  GLOBAL_UZMAN: 'PLMC9KNkIncKtPzgY-5rmhvj7fax8fdxoj',
-  GLOBAL_IMKANSIZ: 'PLMC9KNkIncKtPzgY-5rmhvj7fax8fdxoj',
+  GLOBAL_KOLAY: 'PLC1E3ITcHyoE',
+  GLOBAL_ORTA: 'PLKtVjsHG3BxY',
+  GLOBAL_ZOR: 'PLK-hmgKheaMQ',
+  GLOBAL_UZMAN: 'PLK-hmgKheaMQ',
+  GLOBAL_IMKANSIZ: 'PLK-hmgKheaMQ',
 } as const;
 
 /**
@@ -29,9 +28,13 @@ export const YOUTUBE_CURATED_PLAYLISTS = {
  */
 export function extractPlaylistId(urlOrId: string): string {
   if (!urlOrId) return '';
-  const match = urlOrId.match(/[?&]list=([a-zA-Z0-9_-]+)/);
+  let cleanId = urlOrId.trim();
+  if (cleanId.includes('list=')) {
+    cleanId = cleanId.split('list=')[1].split('&')[0];
+  }
+  const match = cleanId.match(/[?&]list=([a-zA-Z0-9_-]+)/);
   if (match) return match[1];
-  return urlOrId.trim();
+  return cleanId;
 }
 
 /**
@@ -60,9 +63,20 @@ export function getPlaylistIdByStage(region: 'tr' | 'global' = 'tr', stageIndex:
 }
 
 /**
+ * Invidious Playlist Şarkı Modeli
+ */
+export interface InvidiousPlaylistItem {
+  title: string;
+  videoId: string;
+  author: string;
+  lengthSeconds?: number;
+  videoThumbnails?: Array<{ quality: string; url: string }>;
+}
+
+/**
  * YouTube Servisi (YouTube Service)
- * YouTube çalma listelerini resmi IFrame API ve YouTube OEmbed ile çeker.
- * iTunes veya üçüncü parti harici servislere bağımlı değildir.
+ * YouTube çalma listelerini tokensiz CORS-açık Invidious API (inv.nadeko.net vb.)
+ * ve YouTube Data API / OEmbed üzerinden çeker.
  */
 class YouTubeService {
   private apiKey: string = (import.meta as any).env?.VITE_YOUTUBE_API_KEY || '';
@@ -126,16 +140,106 @@ class YouTubeService {
   }
 
   /**
-   * Belirtilen YouTube Playlist ID'sindeki parçaları çeker.
-   * 1. YouTube Data API v3 (API Key varsa)
-   * 2. YouTube IFrame Player cuePlaylist + OEmbed (API Key yoksa doğrudan tarayıcı üzerinden)
+   * Tokensiz Invidious REST API (inv.nadeko.net ve yedekleri) üzerinden doğrudan çalma listesini çeker.
+   * Herhangi bir API key gerektirmez ve tarayıcıda CORS engeline takılmaz.
+   */
+  public async fetchPlaylistFromInvidious(
+    playlistIdOrUrl: string,
+    limit: number = 50,
+    region: 'tr' | 'global' = 'tr'
+  ): Promise<Song[]> {
+    const cleanId = extractPlaylistId(playlistIdOrUrl);
+    if (!cleanId) return [];
+
+    const instances = [
+      'https://inv.nadeko.net',
+      'https://invidious.jing.rocks',
+      'https://invidious.nerdvpn.de',
+    ];
+
+    for (const baseUrl of instances) {
+      try {
+        console.log(`📡 [YouTubeService] "${cleanId}" çalma listesi ${baseUrl} üzerinden çekiliyor...`);
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 6000);
+
+        const response = await fetch(`${baseUrl}/api/v1/playlists/${cleanId}`, {
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+
+        if (!response.ok) continue;
+
+        const data = await response.json();
+        const videos = data.videos || [];
+        if (!Array.isArray(videos) || videos.length === 0) continue;
+
+        const playlistNum = Math.abs(cleanId.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0) % 1000);
+        const sliced = videos.slice(0, limit);
+
+        const mappedSongs: Song[] = sliced.map((item: any, idx: number) => {
+          const rawTitle = (item.title || '').trim();
+          const rawAuthor = (item.author || '').trim();
+
+          let artist = rawAuthor;
+          let title = rawTitle;
+
+          if (rawTitle.includes(' - ')) {
+            const parts = rawTitle.split(' - ');
+            artist = parts[0].trim();
+            title = parts.slice(1).join(' - ').trim();
+          }
+
+          // "(Official Video)", "[Official Audio]", "(Klip)" vb. takıları temizle
+          title = title.replace(/\s*[([].*?(official|video|klip|audio|lyrics|hd|4k|remaster|visualizer).*?[)\]]/gi, '').trim();
+          title = title.replace(/\s*\|\s*.*$/i, '').trim();
+
+          let coverUrl = `https://img.youtube.com/vi/${item.videoId}/hqdefault.jpg`;
+          if (Array.isArray(item.videoThumbnails) && item.videoThumbnails.length > 0) {
+            const highThumb = item.videoThumbnails.find((t: any) => t.quality === 'high' || t.quality === 'maxres') || item.videoThumbnails[0];
+            if (highThumb?.url) {
+              coverUrl = highThumb.url.startsWith('http') ? highThumb.url : `${baseUrl}${highThumb.url}`;
+            }
+          }
+
+          return {
+            id: (playlistNum * 10000) + idx + 1,
+            title: title || rawTitle || 'Bilinmeyen Parça',
+            artist: artist || rawAuthor || 'Sanatçı',
+            year: 2024,
+            genre: 'pop',
+            region,
+            difficulty: 'easy' as DifficultyLevel,
+            difficultyRank: 1,
+            startSecond: 0,
+            duration: item.lengthSeconds || 30,
+            coverUrl,
+            youtubeId: item.videoId,
+          };
+        });
+
+        console.log(`✅ [YouTubeService] ${baseUrl} üzerinden ${mappedSongs.length} şarkı başarıyla yüklendi.`);
+        return mappedSongs;
+      } catch (err) {
+        console.warn(`⚠️ [YouTubeService] ${baseUrl} üzerinden playlist çekme hatası:`, err);
+      }
+    }
+
+    return [];
+  }
+
+  /**
+   * Belirtilen YouTube Playlist ID veya URL'sindeki parçaları çeker.
+   * 1. YouTube Data API v3 (Eğer API Key varsa)
+   * 2. Tokensiz Invidious API (inv.nadeko.net vb.)
    */
   public async getPlaylistSongs(
     playlistIdOrUrl: string,
     options?: { limit?: number; region?: 'tr' | 'global' }
   ): Promise<Song[]> {
     const playlistId = extractPlaylistId(playlistIdOrUrl);
-    const limit = options?.limit || 35;
+    if (!playlistId) return [];
+    const limit = options?.limit || 50;
     const region = options?.region || 'tr';
 
     // Önbellek kontrolü
@@ -188,41 +292,9 @@ class YouTubeService {
         }
       }
 
-      // 2. YouTube IFrame Player üzerinden doğrudan Playlist çekimi (API Keysiz)
+      // 2. Tokensiz Invidious API üzerinden doğrudan Playlist çekimi (inv.nadeko.net vb.)
       if (loadedSongs.length === 0) {
-        try {
-          console.log(`🎬 [YouTubeService] "${playlistId}" çalma listesi YouTube IFrame üzerinden taranıyor...`);
-          const videoIds = await youtubePlayerService.fetchPlaylistVideoIds(playlistId);
-
-          if (videoIds.length > 0) {
-            const sliceIds = videoIds.slice(0, Math.min(limit, 40));
-            const playlistNum = Math.abs(playlistId.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0) % 1000);
-            const metaPromises = sliceIds.map(async (vid, idx) => {
-              const meta = await this.fetchVideoMetadata(vid);
-              if (!meta || !meta.title) return null;
-              const song: Song = {
-                id: (playlistNum * 10000) + idx + 1,
-                title: meta.title,
-                artist: meta.artist,
-                year: 2023,
-                genre: 'pop',
-                region,
-                difficulty: 'medium',
-                difficultyRank: 2,
-                startSecond: 0,
-                duration: 30,
-                coverUrl: meta.coverUrl || `https://img.youtube.com/vi/${vid}/hqdefault.jpg`,
-                youtubeId: vid,
-              };
-              return song;
-            });
-
-            const resolved = await Promise.all(metaPromises);
-            loadedSongs = resolved.filter((s): s is Song => s !== null);
-          }
-        } catch (iframeErr) {
-          console.warn('⚠️ [YouTubeService] IFrame playlist çekimi başarısız:', iframeErr);
-        }
+        loadedSongs = await this.fetchPlaylistFromInvidious(playlistId, limit, region);
       }
 
       if (loadedSongs.length > 0) {

@@ -7,6 +7,7 @@ interface MainLayoutProps {
   onNavigateHome?: () => void;
   onLoginClick?: () => void;
   onCreateRoomClick?: () => void;
+  onPlaylistViewerClick?: () => void;
   maxWidth?: string;
 }
 
@@ -15,6 +16,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   onNavigateHome,
   onLoginClick,
   onCreateRoomClick,
+  onPlaylistViewerClick,
   maxWidth = "42rem",
 }) => {
   return (
@@ -70,6 +72,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
         onTitleClick={onNavigateHome}
         onLoginClick={onLoginClick}
         onCreateRoomClick={onCreateRoomClick}
+        onPlaylistViewerClick={onPlaylistViewerClick}
       />
 
       <div

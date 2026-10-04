@@ -6,12 +6,14 @@ interface HeaderProps {
   onTitleClick?: () => void;
   onLoginClick?: () => void;
   onCreateRoomClick?: () => void;
+  onPlaylistViewerClick?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   onTitleClick,
   onLoginClick,
   onCreateRoomClick,
+  onPlaylistViewerClick,
 }) => {
   const { user, isAuthenticated, isGuest, logout } = useAuth();
 
@@ -19,6 +21,18 @@ export const Header: React.FC<HeaderProps> = ({
     <header className={styles.headerWrapper}>
       <div className={styles.topBar}>
         <div className={styles.authControls}>
+          {onPlaylistViewerClick && (
+            <button
+              type="button"
+              className={styles.playlistBtn}
+              onClick={onPlaylistViewerClick}
+              title="YouTube Çalma Listesi Çekici (Tokensiz)"
+            >
+              <span>🎵</span>
+              <span>Playlist Çekici</span>
+            </button>
+          )}
+
           {isAuthenticated && user ? (
             <>
               <button
