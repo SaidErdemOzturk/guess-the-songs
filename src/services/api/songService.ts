@@ -1,11 +1,62 @@
-import { spotifyService, getPlaylistIdByStage } from './spotifyService';
+import { youtubeService, getPlaylistIdByStage } from './youtubeService';
+import { resolveYouTubeId } from '@/services/audio/youtubeResolver';
+import { cleanTurkishText } from '@/utils/formatters';
 import type { DifficultyLevel, Song, SongFilters, SongPoolStats } from '@/types/song';
 
 /**
- * Kurumsal Şarkı Servisi (Song Service)
- * Spotify Web API (Playlists, Search, Tracks) üzerinden şarkı havuzunu ve önizleme seslerini sağlar.
+ * Şarkı Servisi (Song Service)
+ * Şarkı havuzu, aşama seçimi ve tahmin aramasını doğrudan YouTube çalma listeleri üzerinden yönetir.
+ * Başla'ya basıldığında bütün aşama playlistleri çekilir;
+ * kolay adımda kolay listeden random bir parça tahmin için seçilir;
+ * arama yapıldığında ise bütün çalma listelerinin birleşik havuzunda anlık arama yapılır.
  */
 export const songService = {
+  // Aşama bazlı yüklenmiş şarkı listeleri (0: Kolay, 1: Orta, 2: Zor...)
+  stagePlaylists: {} as Record<number, Song[]>,
+  // Çekilen bütün çalma listelerinin birleşmiş hali (searchSongs bu havuzda arama yapar)
+  combinedPool: [] as Song[],
+
+  /**
+   * Başla'ya basıldığı anda BÜTÜN aşama playlistlerini (Kolay, Orta, Zor) YouTube üzerinden çeker
+   * ve arama havuzu için birleştirir.
+   */
+  async initializeGamePlaylists(region: 'tr' | 'global' = 'tr'): Promise<Song[]> {
+    console.log(`🚀 [SongService] Bütün YouTube çalma listeleri (${region}) çekiliyor...`);
+    try {
+      const stageIndexes = [0, 1, 2]; // 0: Kolay, 1: Orta, 2: Zor
+      const results = await Promise.all(
+        stageIndexes.map((idx) => this.getPlayList(region, idx))
+      );
+
+      stageIndexes.forEach((idx, i) => {
+        this.stagePlaylists[idx] = results[i] || [];
+      });
+
+      // Bütün playlistleri birleştir ve mükerrerleri ayıkla
+      const allSongs = results.flat();
+      const map = new Map<string, Song>();
+      for (const song of allSongs) {
+        const key = song.youtubeId || `${song.artist.toLowerCase()} - ${song.title.toLowerCase()}`;
+        if (!map.has(key)) {
+          map.set(key, song);
+        }
+      }
+      this.combinedPool = Array.from(map.values());
+      youtubeService.registerKnownSongs(this.combinedPool);
+
+      console.log(
+        `✅ [SongService] Bütün çalma listeleri çekildi: ` +
+        `Kolay: ${this.stagePlaylists[0]?.length || 0}, ` +
+        `Orta: ${this.stagePlaylists[1]?.length || 0}, ` +
+        `Zor: ${this.stagePlaylists[2]?.length || 0} ` +
+        `-> Toplam ${this.combinedPool.length} adet benzersiz parça arama havuzuna eklendi.`
+      );
+    } catch (err) {
+      console.warn('⚠️ [SongService] initializeGamePlaylists hatası:', err);
+    }
+    return this.combinedPool;
+  },
+
   /**
    * Filtrelere göre canlı şarkı listesi getirir
    */
@@ -16,36 +67,49 @@ export const songService = {
       (filters?.genre && filters.genre !== 'all' ? filters.genre : (filters?.region === 'global' ? 'top hits' : 'türkçe pop'));
 
     try {
-      return await spotifyService.searchTracks(query, 30);
+      return await youtubeService.searchTracks(query, 30);
     } catch {
       return [];
     }
   },
 
   /**
-   * Şarkı ID'sine göre Spotify https://api.spotify.com/v1/tracks/{id} endpoint'inden şarkıyı getirir
+   * Şarkı ID'sine göre şarkıyı getirir
    */
   async getSongById(id: string | number): Promise<Song | null> {
     try {
-      return await spotifyService.getTrack(String(id));
+      return await youtubeService.getTrack(String(id));
     } catch (err) {
-      console.warn(`[songService] Spotify track ${id} alınamadı:`, err);
+      console.warn(`[songService] track ${id} alınamadı:`, err);
       return null;
     }
   },
 
   /**
-   * Başlık, sanatçı veya arama metnine göre Spotify üzerinde anlık arama (Autocomplete)
+   * Başlık, sanatçı veya arama metnine göre bütün çekilen çalma listelerinin
+   * birleşmiş havuzunda (combinedPool) anlık arama (Autocomplete) yapar.
    */
   async searchSongs(query: string): Promise<Song[]> {
-    if (!query.trim()) return [];
+    const trimmed = query.trim();
+    if (!trimmed) return [];
 
-    try {
-      return await spotifyService.searchTracks(query, 8);
-    } catch (err) {
-      console.warn('[songService] Spotify arama başarısız:', err);
-      return [];
-    }
+    const sourcePool = this.combinedPool.length > 0
+      ? this.combinedPool
+      : Object.values(this.stagePlaylists).flat();
+
+    const normalizedQuery = cleanTurkishText(trimmed);
+    const queryWords = normalizedQuery.split(/\s+/).filter(Boolean);
+
+    const matched = sourcePool.filter((song) => {
+      const normTitle = cleanTurkishText(song.title);
+      const normArtist = cleanTurkishText(song.artist);
+      const combined = `${normArtist} ${normTitle}`;
+
+      // Kullanıcının yazdığı her kelime ya parça adında ya da sanatçıda geçmeli
+      return queryWords.every((word) => combined.includes(word));
+    });
+
+    return matched.slice(0, 15);
   },
 
   /**
@@ -63,102 +127,99 @@ export const songService = {
   },
 
   /**
-   * Bölge ve aşama indeksine göre Spotify playlist'inden canlı şarkı listesi getirir.
+   * Bölge ve aşama indeksine göre doğrudan YouTube playlist'inden canlı şarkı listesi getirir.
    */
   async getPlayList(region: 'tr' | 'global' = 'tr', stageIndex: number = 0): Promise<Song[]> {
     const playlistId = getPlaylistIdByStage(region, stageIndex);
 
     try {
-      const spotifySongs = await spotifyService.getPlaylistSongs(playlistId, {
+      const youtubeSongs = await youtubeService.getPlaylistSongs(playlistId, {
         limit: 50,
         region,
       });
 
-      if (spotifySongs.length > 0) {
-        return spotifySongs;
+      if (youtubeSongs.length > 0) {
+        return youtubeSongs.map((s) => ({
+          ...s,
+          youtubeId: s.youtubeId || resolveYouTubeId(s),
+        }));
       }
     } catch (err) {
-      console.warn(`[songService] Spotify playlisti (${playlistId}) alınamadı:`, err);
+      console.warn(`⚠️ [SongService] YouTube playlist (${playlistId}) çekilemedi:`, err);
     }
 
-    // Fallback olarak arama ile canlı şarkılar çekilir
-    const fallbackQuery = region === 'global' ? 'top hits' : 'türkçe pop';
-    return await spotifyService.searchTracks(fallbackQuery, 20);
+    return [];
   },
 
   /**
-   * İlgili aşama için o aşamanın Spotify playlistinden rastgele 1 şarkı seçer.
-   * Playlist doğrudan tam Song modelini içerdiğinden ekstra /tracks/{id} isteğine gerek yoktur.
+   * İlgili aşama için (örn. kolay adımda kolay adımdan) YouTube çalma listesinden random bir şarkı seçer.
    */
-  async getRandomSongForStage(region: 'tr' | 'global' = 'tr', stageIndex: number = 0): Promise<Song> {
-    const songs = await this.getPlayList(region, stageIndex);
-    if (songs.length > 0) {
-      const randomIndex = Math.floor(Math.random() * songs.length);
-      const chosen = songs[randomIndex];
-      console.log(`🎵 [Spotify Playlist] Şarkı seçildi: "${chosen.artist} - ${chosen.title}" (ID: ${chosen.spotifyId})`);
+  async getRandomSongForStage(
+    region: 'tr' | 'global' = 'tr',
+    stageIndex: number = 0,
+    excludeSongId?: number | string
+  ): Promise<Song> {
+    let songs = this.stagePlaylists[stageIndex];
+    if (!songs || songs.length === 0) {
+      songs = await this.getPlayList(region, stageIndex);
+      if (songs.length > 0) {
+        this.stagePlaylists[stageIndex] = songs;
+      }
+    }
+
+    if (songs && songs.length > 0) {
+      let pool = excludeSongId
+        ? songs.filter((s) => s.id !== excludeSongId && s.youtubeId !== excludeSongId)
+        : songs;
+      if (pool.length === 0) pool = songs;
+
+      // İlgili aşamanın çalma listesinden rastgele (random) bir şarkı seç
+      const randomIndex = Math.floor(Math.random() * pool.length);
+      const chosen = { ...pool[randomIndex] };
+      chosen.youtubeId = chosen.youtubeId || resolveYouTubeId(chosen);
+      console.log(
+        `🎲 [SongService] Aşama ${stageIndex} listesinden (${pool.length} parça) rastgele [indeks ${randomIndex}] seçildi: "${chosen.artist} - ${chosen.title}" (YouTube ID: ${chosen.youtubeId})`
+      );
       return chosen;
     }
 
-    // Yedek liste: Playlist çekilemezse doğrudan hazır popüler parçalardan biri kullanılır
-    const FALLBACK_SONGS: Song[] = [
-      {
-        id: 1,
-        spotifyId: '7qiZfU4dY1lWllzX7mPBI3',
-        title: 'Shape of You',
-        artist: 'Ed Sheeran',
-        year: 2017,
-        genre: 'pop',
-        region: 'global',
-        difficulty: 'easy',
-        difficultyRank: 1,
-        startSecond: 0,
-        duration: 30,
-      },
-      {
-        id: 2,
-        spotifyId: '0VjIjW4GlUZAMYd2vXMi3b',
-        title: 'Blinding Lights',
-        artist: 'The Weeknd',
-        year: 2019,
-        genre: 'pop',
-        region: 'global',
-        difficulty: 'easy',
-        difficultyRank: 1,
-        startSecond: 0,
-        duration: 30,
-      },
-      {
-        id: 3,
-        spotifyId: '3KkXRQHbMCARz0aVfEt68P',
-        title: 'Sunflower',
-        artist: 'Post Malone',
-        year: 2018,
-        genre: 'pop',
-        region: 'global',
-        difficulty: 'easy',
-        difficultyRank: 1,
-        startSecond: 0,
-        duration: 30,
-      },
-    ];
-    return FALLBACK_SONGS[Math.floor(Math.random() * FALLBACK_SONGS.length)];
+    // Playlist henüz yüklenmediyse bile birleşik havuzdan veya ilk aşamadan dene
+    const fallbackPool = this.combinedPool.length > 0 ? this.combinedPool : (this.stagePlaylists[0] || []);
+    if (fallbackPool.length > 0) {
+      const idx = Math.floor(Math.random() * fallbackPool.length);
+      return { ...fallbackPool[idx] };
+    }
+
+    // Son çare dinamik model
+    return {
+      id: Date.now(),
+      title: 'YouTube Parçası Yükleniyor...',
+      artist: 'YouTube',
+      year: 2024,
+      genre: 'pop',
+      region,
+      difficulty: 'easy',
+      difficultyRank: 1,
+      startSecond: 0,
+      duration: 30,
+      youtubeId: '',
+    };
   },
 
-
   /**
-   * Havuz istatistiklerini (tür, zorluk ve toplam adet) döner
+   * Havuz istatistiklerini döner
    */
-  async getPoolStats(filters?: SongFilters): Promise<SongPoolStats> {
+  async getPoolStats(_filters?: SongFilters): Promise<SongPoolStats> {
     return {
-      totalCount: 50000,
-      filteredCount: 18136,
-      byGenre: { pop: 8500, rock: 4200, rap: 3100, electronic: 1200, indie: 1136 },
+      totalCount: this.combinedPool.length || 500,
+      filteredCount: this.combinedPool.length || 200,
+      byGenre: { pop: 850, rock: 420, rap: 310, electronic: 120, indie: 110 },
       byDifficulty: {
-        easy: 4500,
-        medium: 5200,
-        hard: 4100,
-        expert: 2800,
-        impossible: 1536,
+        easy: 450,
+        medium: 520,
+        hard: 410,
+        expert: 280,
+        impossible: 150,
       },
     };
   },
@@ -172,5 +233,3 @@ export const songService = {
     return shuffled.slice(0, count);
   },
 };
-
-

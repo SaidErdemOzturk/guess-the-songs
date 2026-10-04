@@ -1,31 +1,34 @@
 import type { Song } from '@/types/song';
-import { spotifyEmbedService } from '@/services/audio/spotifyEmbedService';
+import { youtubePlayerService } from '@/services/audio/youtubePlayerService';
+import { resolveYouTubeId } from '@/services/audio/youtubeResolver';
 
 export type AudioProgressCallback = (currentSeconds: number, progressRatio: number) => void;
 
 /**
  * Web Audio Service
- * Şarkıları Spotify Embed ile doğrudan 00:00 intro başlangıçlı olarak çalar.
+ * Şarkıları YouTube IFrame Player API ile doğrudan 00:00 intro başlangıçlı olarak çalar.
  */
 class WebAudioService {
   private isPlaying: boolean = false;
   private globalVolume: number = 0.75;
   private isMuted: boolean = false;
-  private currentProgressCallback: AudioProgressCallback | null = null;
 
   /**
-   * Sıradaki şarkının sesini Spotify Embed üzerinden hazırlar.
+   * Sıradaki şarkının sesini YouTube IFrame Player üzerinden önbelleğe/kuyruğa alır.
    */
   public async preloadSong(song: Song): Promise<void> {
-    if (song.spotifyId) {
+    const videoId = song.youtubeId || resolveYouTubeId(song);
+    if (videoId) {
       try {
-        await spotifyEmbedService.loadTrack(song.spotifyId);
-      } catch { }
+        await youtubePlayerService.preloadVideo(videoId);
+      } catch {
+        // Preload hatası oynatmayı engellemez
+      }
     }
   }
 
   /**
-   * Şarkının gerçek 00:00 intro kesitini Spotify Embed ile belirtilen süre kadar çalar.
+   * Şarkının gerçek 00:00 intro kesitini YouTube IFrame Player ile belirtilen süre kadar çalar.
    */
   public async playSongClip(
     song: Song,
@@ -35,26 +38,30 @@ class WebAudioService {
   ): Promise<void> {
     this.stopCurrentAudio();
     this.isPlaying = true;
-    this.currentProgressCallback = onProgress || null;
 
-    if (song.spotifyId) {
-      console.log(`🎧 [Spotify Embed] "${song.artist} - ${song.title}" 00:00 intro başlangıçlı çalınıyor...`);
-      const embedStarted = await spotifyEmbedService.playClip(
-        song.spotifyId,
+    const videoId = song.youtubeId || resolveYouTubeId(song);
+
+    if (videoId) {
+      console.log(`🎧 [YouTube Player] "${song.artist} - ${song.title}" (ID: ${videoId}) 00:00 intro başlangıçlı çalınıyor...`);
+      const started = await youtubePlayerService.playClip(
+        videoId,
         durationInSeconds,
         () => {
           this.isPlaying = false;
           if (onEnd) onEnd();
         },
-        onProgress
+        onProgress,
+        false
       );
-      if (embedStarted) {
+
+      if (started) {
         return;
       }
     }
 
-    console.warn(`⚠️ [WebAudio] "${song.artist} - ${song.title}" için Spotify parçası başlatılamadı.`);
+    console.warn(`⚠️ [WebAudio] "${song.artist} - ${song.title}" için YouTube parçası başlatılamadı.`);
     this.isPlaying = false;
+    if (onEnd) onEnd();
   }
 
   /**
@@ -66,23 +73,25 @@ class WebAudioService {
   ): Promise<void> {
     this.stopCurrentAudio();
     this.isPlaying = true;
-    this.currentProgressCallback = onProgress || null;
 
-    if (song.spotifyId) {
-      console.log(`🎧 [Spotify Embed] "${song.artist} - ${song.title}" sürekli çalınıyor...`);
-      const embedStarted = await spotifyEmbedService.playClip(
-        song.spotifyId,
+    const videoId = song.youtubeId || resolveYouTubeId(song);
+
+    if (videoId) {
+      console.log(`🎧 [YouTube Player] "${song.artist} - ${song.title}" sürekli çalınıyor...`);
+      const started = await youtubePlayerService.playClip(
+        videoId,
         0,
         undefined,
         onProgress,
         true
       );
-      if (embedStarted) {
+
+      if (started) {
         return;
       }
     }
 
-    console.warn(`⚠️ [WebAudio] "${song.artist} - ${song.title}" için Spotify parçası başlatılamadı.`);
+    console.warn(`⚠️ [WebAudio] "${song.artist} - ${song.title}" için YouTube parçası başlatılamadı.`);
     this.isPlaying = false;
   }
 
@@ -90,7 +99,7 @@ class WebAudioService {
    * Şarkıyı sıfırlamadan (en başa sarmadan) duraklatır.
    */
   public pauseAudio(): void {
-    spotifyEmbedService.pauseClip();
+    youtubePlayerService.pauseClip();
     this.isPlaying = false;
   }
 
@@ -99,15 +108,17 @@ class WebAudioService {
    */
   public async resumeAudio(onProgress?: AudioProgressCallback): Promise<void> {
     this.isPlaying = true;
-    this.currentProgressCallback = onProgress || null;
-    const resumed = await spotifyEmbedService.resumeContinuous(onProgress);
+    const resumed = await youtubePlayerService.resumeContinuous(onProgress);
     if (!resumed) {
       this.isPlaying = false;
     }
   }
 
+  /**
+   * O an çalan sesi durdurur.
+   */
   public stopCurrentAudio(): void {
-    spotifyEmbedService.stopClip();
+    youtubePlayerService.stopClip();
     this.isPlaying = false;
   }
 
@@ -117,6 +128,7 @@ class WebAudioService {
 
   public setVolume(volume: number): void {
     this.globalVolume = Math.max(0, Math.min(1, volume));
+    youtubePlayerService.setVolume(this.globalVolume);
     if (this.globalVolume === 0) {
       this.isMuted = true;
     }
@@ -127,7 +139,7 @@ class WebAudioService {
   }
 
   public toggleMute(): boolean {
-    this.isMuted = !this.isMuted;
+    this.isMuted = youtubePlayerService.toggleMute();
     return this.isMuted;
   }
 

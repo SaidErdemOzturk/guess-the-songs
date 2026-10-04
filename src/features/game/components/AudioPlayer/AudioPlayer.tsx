@@ -148,12 +148,17 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
             </button>
           </div>
         ) : (
-          /* Normal Oyun Deneme Durumu: Büyük Yuvarlak Oynat Butonu */
           <>
             <button
-              onClick={onTogglePlay}
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onTogglePlay();
+              }}
               disabled={isLoading}
               id="btn-play-audio"
+              aria-label={isPlaying ? "Şarkıyı Durdur" : "Şarkıyı Çal"}
               style={{
                 position: "relative",
                 width: "6.5rem",

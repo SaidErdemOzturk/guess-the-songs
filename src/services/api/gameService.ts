@@ -87,7 +87,13 @@ export const gameService = {
 
     const normalizedGuess = normalizeText(guessedTitle);
     const normalizedActual = normalizeText(currentSong.title);
-    const isCorrect = normalizedGuess === normalizedActual;
+    const normalizedCombined = normalizeText(`${currentSong.artist} ${currentSong.title}`);
+    const isIdMatch = Boolean(request.songId && currentSong.id && request.songId === currentSong.id);
+    const isCorrect = isIdMatch ||
+      normalizedGuess === normalizedActual ||
+      normalizedGuess === normalizedCombined ||
+      (normalizedGuess.length > 3 && normalizedActual.includes(normalizedGuess)) ||
+      (normalizedActual.length > 3 && normalizedGuess.includes(normalizedActual));
 
     let points = 0;
     if (isCorrect) {

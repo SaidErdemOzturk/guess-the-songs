@@ -18,9 +18,24 @@ export const formatScore = (score: number): string => {
  * Şarkı adı ve tahmin karşılaştırmasını normalize eder.
  */
 export const normalizeText = (text: string): string => {
-  return text
-    .toLowerCase()
-    .trim()
-    .replace(/[.,/#!$%^&*;:{}=\-_`~()]/g, '')
-    .replace(/\s{2,}/g, ' ');
+  return cleanTurkishText(text);
 };
+
+/**
+ * Türkçe ve özel karakterleri arama ve karşılaştırma için normalize eder.
+ */
+export const cleanTurkishText = (text: string): string => {
+  if (!text) return '';
+  return text
+    .toLocaleLowerCase('tr-TR')
+    .replace(/ğ/g, 'g')
+    .replace(/ü/g, 'u')
+    .replace(/ş/g, 's')
+    .replace(/ı/g, 'i')
+    .replace(/ö/g, 'o')
+    .replace(/ç/g, 'c')
+    .replace(/[.,/#!$%^&*;:{}=\-_`~()[\]|]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+

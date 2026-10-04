@@ -4,7 +4,7 @@ import {
   GuessInput,
   StageControlBar,
   AttemptDots,
-  SpotifyEmbed,
+  YouTubeEmbed,
   useGameRound,
 } from "@/features/game";
 import { getAttemptSkipAdd, STAGES } from "@/constants/game";
@@ -82,10 +82,13 @@ export const GamePage: React.FC<GamePageProps> = ({
           isLastStage={currentStageIndex >= STAGES.length - 1}
         />
 
-        {/* Şarkı Bildirildiğinde / Aşama Bittiğinde Spotify Embed Oynatıcı */}
-        {currentSong?.spotifyId && isSongRevealed && (
+        {/* Şarkı Bildirildiğinde / Aşama Bittiğinde YouTube Embed Oynatıcı */}
+        {currentSong?.youtubeId && isSongRevealed && (
           <div style={{ width: "100%", maxWidth: "580px", margin: "0.5rem auto" }}>
-            <SpotifyEmbed spotifyId={currentSong.spotifyId} compact={true} />
+            <YouTubeEmbed
+              youtubeId={currentSong.youtubeId}
+              songTitle={`${currentSong.artist} - ${currentSong.title}`}
+            />
           </div>
         )}
 

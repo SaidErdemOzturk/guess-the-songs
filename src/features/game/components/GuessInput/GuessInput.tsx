@@ -24,19 +24,19 @@ export const GuessInput: React.FC<GuessInputProps> = ({
 
   useEffect(() => {
     const trimmed = searchTerm.trim();
-    if (!trimmed || trimmed.length < 2) {
+    if (!trimmed) {
       setSearchResults([]);
       setIsDropdownOpen(false);
       return;
     }
 
-    // Kota ve Lisans koruması: 350ms debounce ile kullanıcı yazmayı bitirene kadar istek atılmaz
+    // Bütün çalma listelerinin yer aldığı havuzda anlık arama (150ms debounce)
     const timer = setTimeout(() => {
       songService.searchSongs(trimmed).then((results) => {
         setSearchResults(results);
         setIsDropdownOpen(true);
       });
-    }, 350);
+    }, 150);
 
     return () => clearTimeout(timer);
   }, [searchTerm]);
@@ -125,10 +125,10 @@ export const GuessInput: React.FC<GuessInputProps> = ({
             type="text"
             placeholder={
               isLoading
-                ? 'Şarkı yükleniyor, lütfen bekleyin...'
+                ? 'Çalma listeleri yükleniyor, lütfen bekleyin...'
                 : disabled
                   ? 'Tebrikler! Doğru bildin...'
-                  : 'Şarkı veya sanatçı ara...'
+                  : 'Şarkı veya sanatçı ara (bütün playlistlerde)...'
             }
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
@@ -181,7 +181,7 @@ export const GuessInput: React.FC<GuessInputProps> = ({
                     fontStyle: 'italic',
                   }}
                 >
-                  Eşleşen parça bulunamadı. Enter'a basarak "{searchTerm}" tahminini gönderebilirsiniz.
+                  Bütün playlistlerde "{searchTerm}" ile eşleşen parça bulunamadı. Enter'a basarak bu tahmini gönderebilirsiniz.
                 </div>
               ) : (
                 searchResults.map((song) => (

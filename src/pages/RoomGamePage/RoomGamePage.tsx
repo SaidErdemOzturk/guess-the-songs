@@ -4,7 +4,7 @@ import {
   GuessInput,
   StageControlBar,
   AttemptDots,
-  SpotifyEmbed,
+  YouTubeEmbed,
   useGameRound,
 } from '@/features/game';
 import { RoomScoreboard } from '@/features/room/components/RoomScoreboard/RoomScoreboard';
@@ -136,10 +136,13 @@ export const RoomGamePage: React.FC<RoomGamePageProps> = ({
           isLastStage={currentStageIndex >= STAGES.length - 1}
         />
 
-        {/* Şarkı Bildirildiğinde Spotify Embed Oynatıcı */}
-        {currentSong?.spotifyId && isSongRevealed && (
+        {/* Şarkı Bildirildiğinde YouTube Embed Oynatıcı */}
+        {currentSong?.youtubeId && isSongRevealed && (
           <div style={{ width: '100%', maxWidth: '580px', margin: '0.5rem auto' }}>
-            <SpotifyEmbed spotifyId={currentSong.spotifyId} compact={true} />
+            <YouTubeEmbed
+              youtubeId={currentSong.youtubeId}
+              songTitle={`${currentSong.artist} - ${currentSong.title}`}
+            />
           </div>
         )}
 

@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from "react";
 import { songService } from "@/services/api/songService";
-import { spotifyService } from "@/services/api/spotifyService";
 import type { CreateGameSessionRequest } from "@/types/game";
 import type { EraFilter, GenreFilter, RegionFilter } from "@/types/song";
 
@@ -13,13 +12,6 @@ export const HomePage: React.FC<HomePageProps> = ({ onStartGame }) => {
   const [genre, setGenre] = useState<GenreFilter>("all");
   const [era, setEra] = useState<EraFilter>("all");
   const [poolCount, setPoolCount] = useState<number>(18136);
-  const [isSpotifyConnected, setIsSpotifyConnected] = useState(
-    spotifyService.isUserLoggedIn(),
-  );
-
-  useEffect(() => {
-    setIsSpotifyConnected(spotifyService.isUserLoggedIn());
-  }, []);
 
   useEffect(() => {
     songService.getPoolStats({ region, genre, era }).then((stats) => {
@@ -29,11 +21,6 @@ export const HomePage: React.FC<HomePageProps> = ({ onStartGame }) => {
 
   // Kullanıcı "Başla"ya basınca bölge, tür ve dönem backend'e iletilmek üzere gönderilir
   const handleStart = () => {
-    if (!isSpotifyConnected && spotifyService.hasCredentials()) {
-      // Çalma listelerine erişmek için Spotify oturumu başlat
-      spotifyService.loginWithSpotify();
-      return;
-    }
     onStartGame({ region, genre, era });
   };
 
@@ -221,56 +208,6 @@ export const HomePage: React.FC<HomePageProps> = ({ onStartGame }) => {
         {poolCount.toLocaleString("tr-TR")} şarkı bu havuzda bulunuyor.
       </p>
 
-      {/* Spotify Bağlantı Durumu */}
-      <div style={{ marginBottom: "1.25rem" }}>
-        {isSpotifyConnected ? (
-          <div
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "0.5rem",
-              padding: "0.35rem 0.85rem",
-              borderRadius: "9999px",
-              backgroundColor: "rgba(29, 185, 84, 0.15)",
-              border: "1px solid rgba(29, 185, 84, 0.35)",
-              color: "#1ed760",
-              fontSize: "0.75rem",
-              fontWeight: 600,
-            }}
-          >
-            <i className="fa-brands fa-spotify" style={{ fontSize: "14px" }} />
-            <span>Spotify Bağlı (Çalma Listeleri Aktif)</span>
-          </div>
-        ) : (
-          <button
-            onClick={() => spotifyService.loginWithSpotify()}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "0.5rem",
-              padding: "0.45rem 1rem",
-              borderRadius: "9999px",
-              backgroundColor: "#1ed760",
-              color: "#000000",
-              fontSize: "0.8125rem",
-              fontWeight: 700,
-              cursor: "pointer",
-              border: "none",
-              boxShadow: "0 4px 15px rgba(29, 185, 84, 0.35)",
-              transition: "all 150ms ease",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.transform = "scale(1.02)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.transform = "scale(1)";
-            }}
-          >
-            <i className="fa-brands fa-spotify" style={{ fontSize: "16px" }} />
-            <span>Spotify ile Oturum Aç</span>
-          </button>
-        )}
-      </div>
 
       {/* Başla Butonu */}
       <button

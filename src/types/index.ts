@@ -5,4 +5,5 @@ export * from './game';
 export * from './auth';
 export * from './room';
 export * from './spotify';
+export * from './youtube';
 

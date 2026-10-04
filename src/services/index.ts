@@ -4,7 +4,8 @@ export * from './api/songService';
 export * from './api/gameService';
 export * from './api/authService';
 export * from './api/roomService';
-export * from './api/spotifyService';
+export * from './api/youtubeService';
 export * from './audio/webAudioService';
-export * from './audio/spotifyEmbedService';
+export * from './audio/youtubePlayerService';
+export * from './audio/youtubeResolver';
 
