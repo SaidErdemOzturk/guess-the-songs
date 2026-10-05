@@ -43,14 +43,23 @@ class ApiClient {
       const response = await fetch(url, config);
 
       if (!response.ok) {
-        let errorData: Partial<ApiError>;
+        let errorMessage = response.statusText || `Request failed with status ${response.status}`;
         try {
-          errorData = await response.json();
+          const rawText = await response.text();
+          if (rawText) {
+            try {
+              const parsed = JSON.parse(rawText);
+              errorMessage = parsed.message || parsed.title || parsed.error || rawText;
+            } catch {
+              errorMessage = rawText;
+            }
+          }
         } catch {
-          errorData = { message: response.statusText };
+          // Fallback to response.statusText
         }
-        throw new Error(errorData.message || `Request failed with status ${response.status}`);
+        throw new Error(errorMessage);
       }
+
 
       return (await response.json()) as T;
     } catch (error) {

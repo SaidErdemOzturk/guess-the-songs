@@ -11,8 +11,27 @@ export interface LoginCredentials {
   password?: string;
 }
 
+export interface RegisterCredentials {
+  email: string;
+  password: string;
+  firstName: string;
+  lastName: string;
+}
+
+export interface AccessToken {
+  token: string;
+  expiration: string;
+}
+
+export interface AuthResult<T = AccessToken> {
+  data: T;
+  success: boolean;
+  message?: string;
+}
+
 export interface AuthSession {
   user: User | null;
   token: string | null;
   isGuest: boolean;
 }
+

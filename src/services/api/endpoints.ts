@@ -46,4 +46,17 @@ export const ENDPOINTS = {
     SET_CURRENT_SONG: '/api/rooms/setcurrentsong',
     GET_CURRENT_SONG: '/api/rooms/currentsong',
   },
+
+  // Kimlik Doğrulama ve Kullanıcılar (AuthController & UsersController)
+  AUTH: {
+    LOGIN: '/api/auth/login',
+    REGISTER: '/api/auth/register',
+  },
+  USERS: {
+    GET_ALL: '/api/users/getall',
+    GET_BY_ID: (id: number) => `/api/users/getuserbyid?id=${id}`,
+    GET_BY_EMAIL: (email: string) => `/api/users/getuserdtobyemail?email=${encodeURIComponent(email)}`,
+    GET_CLAIMS: (id: number) => `/api/users/getclaims?id=${id}`,
+  },
 } as const;
+

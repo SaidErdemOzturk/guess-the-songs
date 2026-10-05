@@ -21,7 +21,7 @@ export const Header: React.FC<HeaderProps> = ({
     <header className={styles.headerWrapper}>
       <div className={styles.topBar}>
         <div className={styles.authControls}>
-          {/* {onPlaylistViewerClick && (
+          {onPlaylistViewerClick && (
             <button
               type="button"
               className={styles.playlistBtn}
@@ -31,7 +31,7 @@ export const Header: React.FC<HeaderProps> = ({
               <span>🎵</span>
               <span>Playlist Çekici</span>
             </button>
-          )} */}
+          )}
 
           {isAuthenticated && user ? (
             <>
@@ -66,7 +66,7 @@ export const Header: React.FC<HeaderProps> = ({
                   <span>Misafir Modu</span>
                 </div>
               )}
-              {/* {onLoginClick && (
+              {onLoginClick && (
                 <button
                   type="button"
                   className={styles.loginBtn}
@@ -74,7 +74,7 @@ export const Header: React.FC<HeaderProps> = ({
                 >
                   Giriş Yap
                 </button>
-              )} */}
+              )}
             </>
           )}
         </div>

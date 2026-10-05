@@ -1,5 +1,14 @@
+import { apiClient } from './client';
+import { ENDPOINTS } from './endpoints';
 import { storage } from '@/utils/storage';
-import type { AuthSession, LoginCredentials, User } from '@/types/auth';
+import type {
+  AuthSession,
+  LoginCredentials,
+  RegisterCredentials,
+  User,
+  AccessToken,
+  AuthResult,
+} from '@/types/auth';
 
 const AUTH_STORAGE_KEY = 'gts_auth_session';
 
@@ -9,21 +18,192 @@ const INITIAL_SESSION: AuthSession = {
   isGuest: false,
 };
 
+/**
+ * JWT payload'unu güvenli bir şekilde deşifre eden yardımcı fonksiyon
+ */
+function parseJwtPayload(token: string): Record<string, unknown> | null {
+  try {
+    const parts = token.split('.');
+    if (parts.length < 2) return null;
+    const base64Url = parts[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(
+      atob(base64)
+        .split('')
+        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+        .join('')
+    );
+    return JSON.parse(jsonPayload);
+  } catch (e) {
+    console.warn('[authService] JWT payload parse edilemedi:', e);
+    return null;
+  }
+}
+
+/**
+ * Token ve ek bilgilerden User nesnesi oluşturur
+ */
+function createUserFromToken(token: string, fallback?: { email?: string; name?: string }): User {
+  const payload = parseJwtPayload(token);
+
+  // ASP.NET Core ClaimTypes eşlemeleri
+  const id =
+    (payload?.['http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier'] as string) ||
+    (payload?.['nameid'] as string) ||
+    (payload?.['sub'] as string) ||
+    `usr_${Date.now()}`;
+
+  const email =
+    (payload?.['email'] as string) ||
+    (payload?.['http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress'] as string) ||
+    fallback?.email ||
+    '';
+
+  const tokenName =
+    (payload?.['http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name'] as string) ||
+    (payload?.['unique_name'] as string) ||
+    (payload?.['name'] as string);
+
+  const fallbackName = fallback?.name || (email ? email.split('@')[0] : 'Kullanıcı');
+  const name = tokenName?.trim() || fallbackName;
+  const capitalizedName = name.charAt(0).toUpperCase() + name.slice(1);
+
+  return {
+    id: String(id),
+    name: capitalizedName,
+    email,
+    avatarUrl: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(capitalizedName)}`,
+    createdAt: new Date().toISOString(),
+  };
+}
+
 export const authService = {
   /**
-   * Kullanıcı girişi (Mock JWT token ve oturum üretir)
+   * Kullanıcı girişi (Backend POST /api/auth/login)
+   * guess-the-songs-backend AuthController.Login ile tam uyumludur.
    */
   async login(credentials: LoginCredentials): Promise<AuthSession> {
-    // API gecikmesi simülasyonu
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    try {
+      const response = await apiClient.post<AuthResult<AccessToken> | AccessToken>(
+        ENDPOINTS.AUTH.LOGIN,
+        {
+          email: credentials.email.trim(),
+          password: credentials.password || '',
+        }
+      );
 
-    const emailName = credentials.email.split('@')[0] || 'Kullanıcı';
+      // Backend SuccessDataResult<AccessToken> döner: { success, message, data: { token, expiration } }
+      // ya da doğrudan AccessToken dönerse: { token, expiration }
+      const token =
+        (response as AuthResult<AccessToken>)?.data?.token ||
+        (response as AccessToken)?.token;
+
+      if (!token) {
+        throw new Error('Giriş başarısız: Sunucudan erişim tokenı alınamadı.');
+      }
+
+      const user = createUserFromToken(token, {
+        email: credentials.email.trim(),
+      });
+
+      const session: AuthSession = {
+        user,
+        token,
+        isGuest: false,
+      };
+
+      storage.set(AUTH_STORAGE_KEY, session);
+      return session;
+    } catch (error: any) {
+      // Backend kapalıysa ve hızlı demo hesabı deneniyorsa kullanıcıyı bloke etmemek için fallback
+      const isConnectionError =
+        error?.message?.includes('Failed to fetch') ||
+        error?.message?.includes('NetworkError') ||
+        error?.message?.includes('ECONNREFUSED');
+
+      if (isConnectionError) {
+        const isDemo = credentials.email.includes('@muzik.com') || !credentials.password;
+        if (isDemo) {
+          console.warn('[authService] Backend çevrimdışı, demo hesabı için mock oturum üretiliyor.');
+          return this.createMockSession(credentials.email);
+        }
+        throw new Error(
+          'Backend sunucusuna ulaşılamadı. Lütfen backend API servisinin çalıştığından emin olun (http://localhost:5216).'
+        );
+      }
+
+      throw error;
+    }
+  },
+
+  /**
+   * Kullanıcı kaydı (Backend POST /api/auth/register)
+   * guess-the-songs-backend AuthController.Register ile tam uyumludur.
+   */
+  async register(credentials: RegisterCredentials): Promise<AuthSession> {
+    const fullName = `${credentials.firstName.trim()} ${credentials.lastName.trim()}`.trim();
+
+    try {
+      const response = await apiClient.post<AccessToken | AuthResult<AccessToken>>(
+        ENDPOINTS.AUTH.REGISTER,
+        {
+          email: credentials.email.trim(),
+          password: credentials.password,
+          firstName: credentials.firstName.trim(),
+          lastName: credentials.lastName.trim(),
+        }
+      );
+
+      // Backend AuthController.Register Ok(result.Data) döner: { token, expiration }
+      // ya da IDataResult formatında: { success, message, data: { token } }
+      const token =
+        (response as AccessToken)?.token ||
+        (response as AuthResult<AccessToken>)?.data?.token;
+
+      if (!token) {
+        throw new Error('Kayıt başarısız: Sunucudan erişim tokenı alınamadı.');
+      }
+
+      const user = createUserFromToken(token, {
+        email: credentials.email.trim(),
+        name: fullName,
+      });
+
+      const session: AuthSession = {
+        user,
+        token,
+        isGuest: false,
+      };
+
+      storage.set(AUTH_STORAGE_KEY, session);
+      return session;
+    } catch (error: any) {
+      const isConnectionError =
+        error?.message?.includes('Failed to fetch') ||
+        error?.message?.includes('NetworkError') ||
+        error?.message?.includes('ECONNREFUSED');
+
+      if (isConnectionError) {
+        throw new Error(
+          'Backend sunucusuna ulaşılamadı. Lütfen backend API servisinin çalıştığından emin olun (http://localhost:5216).'
+        );
+      }
+
+      throw error;
+    }
+  },
+
+  /**
+   * Demo hesaplar için backend çevrimdışıyken çalışan mock oturum üretici
+   */
+  createMockSession(email: string): AuthSession {
+    const emailName = email.split('@')[0] || 'Kullanıcı';
     const capitalizedName = emailName.charAt(0).toUpperCase() + emailName.slice(1);
 
     const user: User = {
       id: `usr_${Date.now()}`,
       name: capitalizedName,
-      email: credentials.email,
+      email,
       avatarUrl: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(capitalizedName)}`,
       createdAt: new Date().toISOString(),
     };
