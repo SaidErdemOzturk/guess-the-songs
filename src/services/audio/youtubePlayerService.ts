@@ -13,6 +13,20 @@ class YouTubePlayerService {
   private playerReadyPromise: Promise<YTPlayer> | null = null;
 
   private currentVideoId: string | null = null;
+  private cuedVideoId: string | null = null;
+  private isEmbedReady: boolean = false;
+  private cuedResolve: ((ready: boolean) => void) | null = null;
+  private cuedReject: ((reason?: any) => void) | null = null;
+  private cuedTimer: ReturnType<typeof setTimeout> | null = null;
+
+  private pendingPlaybackStart: {
+    videoId: string;
+    durationSeconds: number;
+    continuous: boolean;
+    onProgress?: AudioProgressCallback;
+  } | null = null;
+  private playbackStartTimeout: ReturnType<typeof setTimeout> | null = null;
+
   private isPlaying: boolean = false;
   private isMuted: boolean = false;
   private currentVolume: number = 75; // 0 - 100
@@ -200,6 +214,17 @@ class YouTubePlayerService {
                 this.unplayableVideoIds.add(failedVideoId);
               }
 
+              if (this.cuedTimer) {
+                clearTimeout(this.cuedTimer);
+                this.cuedTimer = null;
+              }
+              if (this.cuedReject) {
+                const reject = this.cuedReject;
+                this.cuedResolve = null;
+                this.cuedReject = null;
+                reject(new Error(`YouTube player error code ${errorCode}`));
+              }
+
               // Oynatma süreci ve zamanlayıcıları sıfırla
               this.isPlaying = false;
               this.clearTimers();
@@ -252,14 +277,59 @@ class YouTubePlayerService {
   }
 
   /**
+   * Videonun embed isteklerinin tamamlanıp hazır (CUED) olduğunu döner
+   */
+  public isVideoEmbedReady(videoId?: string): boolean {
+    if (!videoId) return this.isEmbedReady;
+    return this.cuedVideoId === videoId && this.isEmbedReady;
+  }
+
+  /**
    * Oynatıcı durum değişikliklerini takip eder
    */
   private handleStateChange(state: YTPlayerState): void {
-    // 1: PLAYING, 2: PAUSED, 0: ENDED
+    // 5: CUED (Embed istekleri tamamlandı, video bilgileri yüklendi ve oynatmaya hazır)
+    if (state === 5) {
+      console.log(`🎬 [YouTubePlayerService] Embed hazır (CUED): ${this.cuedVideoId}`);
+      this.isEmbedReady = true;
+      if (this.cuedResolve) {
+        if (this.cuedTimer) clearTimeout(this.cuedTimer);
+        this.cuedTimer = null;
+        const resolve = this.cuedResolve;
+        this.cuedResolve = null;
+        this.cuedReject = null;
+        resolve(true);
+      }
+      return;
+    }
+
+    // 1: PLAYING (Ses akışı gerçekte başladı)
     if (state === 1) {
       this.isPlaying = true;
+      this.isEmbedReady = true;
+
+      // Bekleyen cued promise varsa çöz
+      if (this.cuedResolve) {
+        if (this.cuedTimer) clearTimeout(this.cuedTimer);
+        this.cuedTimer = null;
+        const resolve = this.cuedResolve;
+        this.cuedResolve = null;
+        this.cuedReject = null;
+        resolve(true);
+      }
+
+      // Bekleyen klip süresi ve progress zamanlayıcılarını ses GERÇEKTE başladığı an devreye al
+      if (this.pendingPlaybackStart) {
+        const { durationSeconds, continuous, onProgress } = this.pendingPlaybackStart;
+        this.pendingPlaybackStart = null;
+        if (this.playbackStartTimeout) {
+          clearTimeout(this.playbackStartTimeout);
+          this.playbackStartTimeout = null;
+        }
+        this.startActivePlaybackTimers(durationSeconds, continuous, onProgress);
+      }
     } else if (state === 0 || state === 2) {
-      // YouTube native endSeconds'a ulaştığında ENDED (0) veya PAUSED (2) olur
+      // 0: ENDED, 2: PAUSED
       if (this.isPlaying && this.activeOnEndCallback) {
         this.stopClip();
       }
@@ -267,25 +337,77 @@ class YouTubePlayerService {
   }
 
   /**
-   * Parçayı önceden yükler/kuyruğa alır (sıfır gecikme için)
+   * Belirtilen videonun YouTube embed isteklerinin tamamlanıp hazır olmasını (CUED) bekler.
    */
-  public async preloadVideo(videoId: string): Promise<void> {
-    if (!videoId) return;
+  public async prepareSong(videoId: string, timeoutMs: number = 8000): Promise<boolean> {
+    if (!videoId) return false;
+
+    // Eğer bu video zaten cued ve hazır durumdaysa hemen onay ver
+    if (this.cuedVideoId === videoId && this.isEmbedReady) {
+      return true;
+    }
+
+    // Önceki bekleyen cued promise varsa temizle
+    if (this.cuedTimer) {
+      clearTimeout(this.cuedTimer);
+      this.cuedTimer = null;
+    }
+    if (this.cuedResolve) {
+      this.cuedResolve(false);
+      this.cuedResolve = null;
+      this.cuedReject = null;
+    }
+
+    this.isEmbedReady = false;
+    this.cuedVideoId = videoId;
+    this.currentVideoId = videoId;
+
     try {
       const player = await this.ensurePlayer();
-      this.currentVideoId = videoId;
-      player.cueVideoById({
-        videoId,
-        startSeconds: 0,
+
+      return await new Promise<boolean>((resolve, reject) => {
+        this.cuedResolve = resolve;
+        this.cuedReject = reject;
+
+        this.cuedTimer = setTimeout(() => {
+          console.warn(`⏳ [YouTubePlayerService] prepareSong timeout (${timeoutMs}ms) for: ${videoId}`);
+          this.cuedTimer = null;
+          this.cuedResolve = null;
+          this.cuedReject = null;
+          this.isEmbedReady = true;
+          resolve(true);
+        }, timeoutMs);
+
+        try {
+          player.cueVideoById({
+            videoId,
+            startSeconds: 0,
+          });
+        } catch (err) {
+          if (this.cuedTimer) clearTimeout(this.cuedTimer);
+          this.cuedTimer = null;
+          this.cuedResolve = null;
+          this.cuedReject = null;
+          reject(err);
+        }
       });
     } catch (err) {
-      console.warn('⚠️ [YouTubePlayerService] Preload başarısız:', err);
+      console.warn('⚠️ [YouTubePlayerService] prepareSong başarısız:', err);
+      return false;
     }
   }
 
   /**
+   * Parçayı önceden yükler/kuyruğa alır (sıfır gecikme için)
+   */
+  public async preloadVideo(videoId: string): Promise<boolean> {
+    return this.prepareSong(videoId);
+  }
+
+  /**
    * Şarkının gerçek 00:00 başlangıçlı intro klibini belirtilen süre kadar çalar.
-   * YouTube IFrame yerel endSeconds desteği ve çok katmanlı durdurma garantisiyle çalışır.
+   * YouTube IFrame yerel endSeconds desteği ve sesin GERÇEKTEN başladığı anı (state === 1)
+   * dinleyerek zamanlayıcıları başlatır; böylece yüklenme/buffering esnasında süre asla sıfırlanmaz.
    */
   public async playClip(
     videoId: string,
@@ -316,8 +438,25 @@ class YouTubePlayerService {
 
       this.currentVideoId = videoId;
 
-      // 1. YouTube IFrame Yerel startSeconds ve endSeconds
-      // YouTube bu parametrelerle videoyu tam olarak durationSeconds süresince çalar ve yerel olarak durdurur.
+      // Zamanlayıcıları henüz BAŞLATMIYORUZ!
+      // YouTube buffer yapıp sesi GERÇEKTEN çalmaya başladığında (state === 1: PLAYING) başlatacağız.
+      this.pendingPlaybackStart = {
+        videoId,
+        durationSeconds,
+        continuous,
+        onProgress,
+      };
+
+      // 7 saniye içinde ses başlamazsa güvenlik olarak durdur
+      this.playbackStartTimeout = setTimeout(() => {
+        if (this.pendingPlaybackStart) {
+          console.warn('⚠️ [YouTubePlayerService] Playback başlatma zaman aşımı (7s), durduruluyor.');
+          this.pendingPlaybackStart = null;
+          this.stopClip();
+        }
+      }, 7000);
+
+      // YouTube IFrame video yüklemesini başlat
       if (!continuous && durationSeconds > 0) {
         player.loadVideoById({
           videoId,
@@ -331,41 +470,68 @@ class YouTubePlayerService {
         });
       }
 
-      // 2. Anlık Süre ve İlerleme Takibi (Progress Bar)
-      this.progressInterval = setInterval(() => {
-        try {
-          const currentTime = player.getCurrentTime ? player.getCurrentTime() : 0;
-          if (!continuous && durationSeconds > 0) {
-            const bounded = Math.min(durationSeconds, Math.max(0, currentTime));
-            if (onProgress) {
-              onProgress(bounded, bounded / durationSeconds);
-            }
-            // Yazılımsal Güvenlik Eşiği: Eğer YouTube endSeconds tetiklemesi milisaniyelik gecikirse kesin durdur
-            if (currentTime >= durationSeconds) {
-              this.stopClip();
-            }
-          } else {
-            const duration = player.getDuration ? player.getDuration() : 180;
-            if (onProgress) {
-              onProgress(currentTime, duration > 0 ? Math.min(1, currentTime / duration) : 0);
-            }
-          }
-        } catch {}
-      }, 50);
-
-      // 3. Yazılımsal Güvenlik Zaman Aşımı (Watchdog)
-      // Ağ veya iframe takılsa dahi sürenin sonunda sesin çalmaya devam etmesini kesin engeller.
-      if (!continuous && durationSeconds > 0) {
-        this.clipTimeout = setTimeout(() => {
-          this.stopClip();
-        }, (durationSeconds + 0.35) * 1000);
+      // Eğer player anında PLAYING durumuna geçtiyse hemen başlat
+      if (player.getPlayerState && player.getPlayerState() === 1) {
+        if (this.playbackStartTimeout) {
+          clearTimeout(this.playbackStartTimeout);
+          this.playbackStartTimeout = null;
+        }
+        this.pendingPlaybackStart = null;
+        this.startActivePlaybackTimers(durationSeconds, continuous, onProgress);
       }
 
       return true;
     } catch (err) {
       console.error('❌ [YouTubePlayerService] playClip hatası:', err);
       this.isPlaying = false;
+      this.clearTimers();
       return false;
+    }
+  }
+
+  /**
+   * Ses GERÇEKTE başladığı anda (state === 1) zamanlayıcıları ve ilerleme barını devreye sokar.
+   */
+  private startActivePlaybackTimers(
+    durationSeconds: number,
+    continuous: boolean,
+    onProgress?: AudioProgressCallback
+  ): void {
+    if (!this.player) return;
+    const player = this.player;
+
+    if (onProgress) {
+      onProgress(0, 0);
+    }
+
+    // 1. Anlık Süre ve İlerleme Takibi (Progress Bar)
+    this.progressInterval = setInterval(() => {
+      try {
+        const currentTime = player.getCurrentTime ? player.getCurrentTime() : 0;
+        if (!continuous && durationSeconds > 0) {
+          const bounded = Math.min(durationSeconds, Math.max(0, currentTime));
+          if (onProgress) {
+            onProgress(bounded, bounded / durationSeconds);
+          }
+          // Yazılımsal Güvenlik Eşiği: Eğer YouTube endSeconds tetiklemesi milisaniyelik gecikirse kesin durdur
+          if (currentTime >= durationSeconds) {
+            this.stopClip();
+          }
+        } else {
+          const duration = player.getDuration ? player.getDuration() : 180;
+          if (onProgress) {
+            onProgress(currentTime, duration > 0 ? Math.min(1, currentTime / duration) : 0);
+          }
+        }
+      } catch {}
+    }, 50);
+
+    // 2. Yazılımsal Güvenlik Zaman Aşımı (Watchdog)
+    // Sadece ses başladıktan SONRA durationSeconds + 0.35s kadar bekler!
+    if (!continuous && durationSeconds > 0) {
+      this.clipTimeout = setTimeout(() => {
+        this.stopClip();
+      }, (durationSeconds + 0.35) * 1000);
     }
   }
 
@@ -476,14 +642,19 @@ class YouTubePlayerService {
   }
 
   private clearTimers(): void {
-    if (this.progressInterval) {
+    if (this.progressInterval !== null) {
       clearInterval(this.progressInterval);
       this.progressInterval = null;
     }
-    if (this.clipTimeout) {
+    if (this.clipTimeout !== null) {
       clearTimeout(this.clipTimeout);
       this.clipTimeout = null;
     }
+    if (this.playbackStartTimeout !== null) {
+      clearTimeout(this.playbackStartTimeout);
+      this.playbackStartTimeout = null;
+    }
+    this.pendingPlaybackStart = null;
   }
 
   public destroy(): void {

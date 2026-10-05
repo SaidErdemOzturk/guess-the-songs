@@ -18,6 +18,7 @@ export interface RoomSettings {
   genre: GenreFilter;
   era: EraFilter;
   guessTimeLimitMinutes?: number;
+  playlistId?: string;
 }
 
 export interface Room {

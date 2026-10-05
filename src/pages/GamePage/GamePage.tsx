@@ -36,6 +36,8 @@ export const GamePage: React.FC<GamePageProps> = ({
     isGuessLocked,
     isSongRevealed,
     isLoadingSong,
+    stages,
+    totalStages,
     startNewGame,
     togglePlay,
     advanceAttempt,
@@ -54,6 +56,7 @@ export const GamePage: React.FC<GamePageProps> = ({
       <div className={styles.gameMainArea}>
         {/* Üst Kontrol & Aşama Barı */}
         <StageControlBar
+          stages={stages}
           currentStageIndex={currentStageIndex}
           currentAttemptIndex={currentAttemptIndex}
           currentDuration={feedback?.isSuccess ? 8.0 : currentDuration}
@@ -79,7 +82,7 @@ export const GamePage: React.FC<GamePageProps> = ({
           isLoading={isLoadingSong}
           isSongRevealed={isSongRevealed}
           onNextSong={goToNextSong}
-          isLastStage={currentStageIndex >= STAGES.length - 1}
+          isLastStage={currentStageIndex >= totalStages - 1}
         />
 
         {/* Şarkı Bildirildiğinde / Aşama Bittiğinde YouTube Embed Oynatıcı */}
@@ -127,7 +130,7 @@ export const GamePage: React.FC<GamePageProps> = ({
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            zIndex: 100,
+            zIndex: 1000,
             padding: "1rem",
           }}
         >

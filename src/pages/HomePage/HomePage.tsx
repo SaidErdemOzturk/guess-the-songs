@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { songService } from "@/services/api/songService";
-import type { CreateGameSessionRequest } from "@/types/game";
+import type { CreateGameSessionRequest, GameMode } from "@/types/game";
 import type { EraFilter, GenreFilter, RegionFilter } from "@/types/song";
 
 interface HomePageProps {
@@ -11,6 +11,8 @@ export const HomePage: React.FC<HomePageProps> = ({ onStartGame }) => {
   const [region, setRegion] = useState<RegionFilter>("tr");
   const [genre, setGenre] = useState<GenreFilter>("all");
   const [era, setEra] = useState<EraFilter>("all");
+  const [gameMode, setGameMode] = useState<GameMode>("short");
+  const [songCount, setSongCount] = useState<number>(10);
   const [poolCount, setPoolCount] = useState<number>(18136);
 
   useEffect(() => {
@@ -19,9 +21,15 @@ export const HomePage: React.FC<HomePageProps> = ({ onStartGame }) => {
     });
   }, [region, genre, era]);
 
-  // Kullanıcı "Başla"ya basınca bölge, tür ve dönem backend'e iletilmek üzere gönderilir
+  // Kullanıcı "Başla"ya basınca bölge, tür, dönem ve oyun modu parametreleri iletilir
   const handleStart = () => {
-    onStartGame({ region, genre, era });
+    onStartGame({
+      region,
+      genre,
+      era,
+      gameMode,
+      songCount: gameMode === "long" ? songCount : 3,
+    });
   };
 
   return (
@@ -62,12 +70,26 @@ export const HomePage: React.FC<HomePageProps> = ({ onStartGame }) => {
             fontWeight: 400,
           }}
         >
-          5 aşama <span style={{ color: "#6366f1" }}>·</span> her aşama intromun{" "}
-          <span style={{ color: "#818cf8", fontWeight: 600 }}>0.1s</span> ile
-          başlar ve 4 denemede{" "}
-          <span style={{ color: "#ec4899", fontWeight: 600 }}>8s</span>'ye kadar
-          genişler <span style={{ color: "#6366f1" }}>·</span> zorlaşan şey süre
-          değil şarkıdır
+          {gameMode === "short" ? (
+            <>
+              3 aşama <span style={{ color: "#6366f1" }}>·</span> her aşama{" "}
+              <span style={{ color: "#818cf8", fontWeight: 600 }}>0.5s</span> ile
+              başlar ve 4 denemede{" "}
+              <span style={{ color: "#ec4899", fontWeight: 600 }}>15s</span>'ye
+              kadar genişler <span style={{ color: "#6366f1" }}>·</span> zorlaşan
+              şey süre değil şarkıdır
+            </>
+          ) : (
+            <>
+              {songCount} şarkı <span style={{ color: "#6366f1" }}>·</span> tüm
+              listeler birleşik havuzda <span style={{ color: "#6366f1" }}>·</span>{" "}
+              her şarkı{" "}
+              <span style={{ color: "#818cf8", fontWeight: 600 }}>0.5s</span> ile
+              başlar ve 4 denemede{" "}
+              <span style={{ color: "#ec4899", fontWeight: 600 }}>15s</span>'ye
+              kadar genişler
+            </>
+          )}
         </p>
       </div>
 
@@ -118,6 +140,95 @@ export const HomePage: React.FC<HomePageProps> = ({ onStartGame }) => {
             }}
           />
         </div>
+
+        {/* Oyun Modu Seçimi: Kısa / Uzun */}
+        <div style={{ position: "relative" }}>
+          <select
+            value={gameMode}
+            onChange={(e) => setGameMode(e.target.value as GameMode)}
+            style={{
+              backgroundColor: "rgba(17, 24, 39, 0.85)",
+              color: "#e2e8f0",
+              fontSize: "0.8125rem",
+              padding: "0.5rem 2rem 0.5rem 1rem",
+              borderRadius: "9999px",
+              border: "1px solid rgba(255, 255, 255, 0.1)",
+              backdropFilter: "blur(8px)",
+              cursor: "pointer",
+              outline: "none",
+              appearance: "none",
+              fontWeight: 500,
+            }}
+          >
+            <option value="short">⚡ Kısa (3 Şarkı)</option>
+            <option value="long">🎯 Uzun (Özel Sayı)</option>
+          </select>
+          <i
+            className="fa-solid fa-chevron-down"
+            style={{
+              fontSize: "10px",
+              color: "#818cf8",
+              position: "absolute",
+              right: "0.75rem",
+              top: "50%",
+              transform: "translateY(-50%)",
+              pointerEvents: "none",
+            }}
+          />
+        </div>
+
+        {/* Uzun Mod seçildiğinde açılan Şarkı Sayısı Inputu */}
+        {gameMode === "long" && (
+          <div
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "0.5rem",
+              padding: "0.25rem 0.75rem",
+              borderRadius: "9999px",
+              backgroundColor: "rgba(17, 24, 39, 0.85)",
+              border: "1px solid rgba(99, 102, 241, 0.4)",
+              backdropFilter: "blur(8px)",
+              boxShadow: "0 0 15px rgba(99, 102, 241, 0.15)",
+            }}
+          >
+            <span
+              style={{
+                fontSize: "0.8125rem",
+                color: "#c7d2fe",
+                fontWeight: 600,
+              }}
+            >
+              Şarkı Sayısı:
+            </span>
+            <input
+              type="number"
+              min={1}
+              max={50}
+              value={songCount}
+              onChange={(e) => {
+                const val = parseInt(e.target.value, 10);
+                if (isNaN(val)) {
+                  setSongCount(1);
+                } else {
+                  setSongCount(Math.max(1, Math.min(50, val)));
+                }
+              }}
+              style={{
+                width: "3.75rem",
+                backgroundColor: "rgba(31, 41, 55, 0.9)",
+                color: "#ffffff",
+                fontSize: "0.875rem",
+                fontWeight: 800,
+                textAlign: "center",
+                padding: "0.25rem 0.25rem",
+                borderRadius: "0.5rem",
+                border: "1px solid rgba(99, 102, 241, 0.6)",
+                outline: "none",
+              }}
+            />
+          </div>
+        )}
 
         {/* Tür */}
         {/* <div style={{ position: "relative" }}>
@@ -207,7 +318,6 @@ export const HomePage: React.FC<HomePageProps> = ({ onStartGame }) => {
       >
         {poolCount.toLocaleString("tr-TR")} şarkı bu havuzda bulunuyor.
       </p>
-
 
       {/* Başla Butonu */}
       <button

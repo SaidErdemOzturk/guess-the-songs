@@ -216,6 +216,49 @@ export const songService = {
   },
 
   /**
+   * Bütün aşama listelerini birleştirir ve bu birleşik havuzdan (combinedPool)
+   * daha önce çalınmamış rastgele bir şarkı seçer.
+   */
+  async getRandomSongFromCombinedPool(
+    region: 'tr' | 'global' = 'tr',
+    excludeIds: (number | string)[] = []
+  ): Promise<Song> {
+    if (!this.combinedPool || this.combinedPool.length === 0) {
+      await this.initializeGamePlaylists(region);
+    }
+
+    const excludeSet = new Set(excludeIds.map(String));
+
+    let pool = this.combinedPool.filter((s) => {
+      if (excludeSet.has(String(s.id))) return false;
+      if (s.youtubeId && excludeSet.has(String(s.youtubeId))) return false;
+      if (s.youtubeId && youtubePlayerService.isVideoUnplayable(s.youtubeId)) return false;
+      return true;
+    });
+
+    if (pool.length === 0) {
+      // Eğer havuz bittiyse (tüm şarkılar çalındıysa), sadece telif engeli olmayanlardan tekrar seç
+      pool = this.combinedPool.filter((s) => !s.youtubeId || !youtubePlayerService.isVideoUnplayable(s.youtubeId));
+    }
+    if (pool.length === 0) {
+      pool = this.combinedPool;
+    }
+
+    if (pool.length > 0) {
+      const randomIndex = Math.floor(Math.random() * pool.length);
+      const chosen = { ...pool[randomIndex] };
+      chosen.youtubeId = chosen.youtubeId || resolveYouTubeId(chosen);
+      console.log(
+        `🎲 [SongService] Birleşik havuzdan (${pool.length} parça) rastgele seçildi: "${chosen.artist} - ${chosen.title}" (YouTube ID: ${chosen.youtubeId})`
+      );
+      return chosen;
+    }
+
+    // Fallback:
+    return this.getRandomSongForStage(region, 0);
+  },
+
+  /**
    * Havuz istatistiklerini döner
    */
   async getPoolStats(_filters?: SongFilters): Promise<SongPoolStats> {

@@ -67,16 +67,6 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
             }}
           />
           <span>Şarkı çalıyor · İstediğin an sonraki şarkıya geçebilirsin</span>
-          <span
-            className="font-mono-num"
-            style={{
-              color: isPlaying ? "#34d399" : "#9ca3af",
-              fontWeight: 700,
-              marginLeft: "0.25rem",
-            }}
-          >
-            {playbackSeconds.toFixed(1)}s
-          </span>
         </div>
       )}
 
@@ -158,7 +148,8 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
               }}
               disabled={isLoading}
               id="btn-play-audio"
-              aria-label={isPlaying ? "Şarkıyı Durdur" : "Şarkıyı Çal"}
+              aria-label={isLoading ? "Şarkı hazırlanıyor..." : isPlaying ? "Şarkıyı Durdur" : "Şarkıyı Çal"}
+              title={isLoading ? "Şarkı hazırlanıyor, lütfen bekleyin..." : undefined}
               style={{
                 position: "relative",
                 width: "6.5rem",

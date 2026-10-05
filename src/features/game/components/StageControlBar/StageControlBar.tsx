@@ -1,7 +1,9 @@
 import React from 'react';
 import { STAGES } from '@/constants/game';
+import type { GameStage } from '@/types/game';
 
 interface StageControlBarProps {
+  stages?: GameStage[];
   currentStageIndex: number;
   currentAttemptIndex: number;
   currentDuration: number;
@@ -22,6 +24,7 @@ interface StageControlBarProps {
 const STAGE_SEGMENT_WIDTHS = [10, 20, 35, 35];
 
 export const StageControlBar: React.FC<StageControlBarProps> = ({
+  stages = STAGES,
   currentStageIndex,
   currentAttemptIndex,
   currentDuration,
@@ -37,7 +40,8 @@ export const StageControlBar: React.FC<StageControlBarProps> = ({
   roundCountdownSeconds,
   onBackHome,
 }) => {
-  const currentStage = STAGES[currentStageIndex] || STAGES[0];
+  const activeStages = stages && stages.length > 0 ? stages : STAGES;
+  const currentStage = activeStages[currentStageIndex] || activeStages[0] || STAGES[0];
 
   const formatCountdown = (totalSec: number) => {
     const mins = Math.floor(Math.max(0, totalSec) / 60);
@@ -276,42 +280,71 @@ export const StageControlBar: React.FC<StageControlBarProps> = ({
         </div>
       </div>
 
-      {/* Zorluk Düzeyi Hapları */}
+      {/* Zorluk Düzeyi veya Şarkı İlerleme Hapları */}
       <div
         style={{
           display: 'flex',
           alignItems: 'center',
           gap: '0.375rem',
-          padding: '0.25rem',
+          padding: '0.25rem 0.5rem',
           backgroundColor: 'rgba(17, 24, 39, 0.85)',
           backdropFilter: 'blur(8px)',
           border: '1px solid rgba(255, 255, 255, 0.1)',
           borderRadius: '9999px',
           marginBottom: '0.75rem',
+          maxWidth: '100%',
+          overflowX: 'auto',
         }}
       >
-        {STAGES.map((s, idx) => {
-          const isActive = idx === currentStageIndex;
-          return (
-            <span
-              key={s.stage}
+        {activeStages.length <= 5 ? (
+          activeStages.map((s, idx) => {
+            const isActive = idx === currentStageIndex;
+            return (
+              <span
+                key={s.stage}
+                style={{
+                  fontSize: '0.75rem',
+                  padding: isActive ? '0.25rem 0.875rem' : '0.25rem 0.75rem',
+                  borderRadius: '9999px',
+                  fontWeight: isActive ? 700 : 500,
+                  background: isActive
+                    ? 'linear-gradient(135deg, #6366f1 0%, #ec4899 100%)'
+                    : 'transparent',
+                  color: isActive ? '#ffffff' : '#6b7280',
+                  boxShadow: isActive ? '0 0 15px rgba(99, 102, 241, 0.4)' : 'none',
+                  transition: 'all 200ms ease',
+                }}
+              >
+                {s.name}
+              </span>
+            );
+          })
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', padding: '0.2rem 0.75rem' }}>
+            <span style={{ fontSize: '0.75rem', color: '#c7d2fe', fontWeight: 700 }}>
+              Şarkı {currentStageIndex + 1} / {activeStages.length}
+            </span>
+            <div
               style={{
-                fontSize: '0.75rem',
-                padding: isActive ? '0.25rem 0.875rem' : '0.25rem 0.75rem',
+                width: '7rem',
+                height: '6px',
                 borderRadius: '9999px',
-                fontWeight: isActive ? 700 : 500,
-                background: isActive
-                  ? 'linear-gradient(135deg, #6366f1 0%, #ec4899 100%)'
-                  : 'transparent',
-                color: isActive ? '#ffffff' : '#6b7280',
-                boxShadow: isActive ? '0 0 15px rgba(99, 102, 241, 0.4)' : 'none',
-                transition: 'all 200ms ease',
+                backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                overflow: 'hidden',
               }}
             >
-              {s.name}
-            </span>
-          );
-        })}
+              <div
+                style={{
+                  width: `${((currentStageIndex + 1) / activeStages.length) * 100}%`,
+                  height: '100%',
+                  background: 'linear-gradient(90deg, #6366f1, #ec4899)',
+                  borderRadius: '9999px',
+                  transition: 'width 300ms ease',
+                }}
+              />
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Aşama Durum Başlığı */}
@@ -323,8 +356,12 @@ export const StageControlBar: React.FC<StageControlBarProps> = ({
           marginBottom: '1.25rem',
         }}
       >
-        Aşama <span style={{ color: '#ffffff', fontWeight: 700 }}>{currentStage.stage}</span> / {STAGES.length} ·{' '}
-        <span style={{ color: '#818cf8', fontWeight: 600 }}>{currentStage.name}</span>
+        Şarkı <span style={{ color: '#ffffff', fontWeight: 700 }}>{currentStageIndex + 1}</span> / {activeStages.length}
+        {activeStages.length <= 5 && (
+          <>
+            {' '}· <span style={{ color: '#818cf8', fontWeight: 600 }}>{currentStage.name}</span>
+          </>
+        )}
       </div>
 
       {/* Bölümlendirilmiş Zaman Çizgisi ve Canlı Playhead İmleci */}

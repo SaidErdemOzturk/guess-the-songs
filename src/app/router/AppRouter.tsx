@@ -179,7 +179,7 @@ export const AppRouter: React.FC = () => {
             inset: 0,
             backgroundColor: 'rgba(0, 0, 0, 0.75)',
             backdropFilter: 'blur(8px)',
-            zIndex: 60,
+            zIndex: 1000,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',

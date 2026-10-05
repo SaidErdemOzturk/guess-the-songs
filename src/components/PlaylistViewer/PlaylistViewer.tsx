@@ -110,7 +110,9 @@ export function PlaylistViewer({
 
     try {
       setPreviewingVideoId(videoId);
-      await youtubePlayerService.playClip(videoId, 0, 15);
+      await youtubePlayerService.playClip(videoId, 15, () => {
+        setPreviewingVideoId(null);
+      });
     } catch {
       setPreviewingVideoId(null);
     }

@@ -10,12 +10,16 @@ export interface GameStage {
 
 export type GameStatus = 'idle' | 'playing' | 'paused' | 'round_success' | 'round_failed' | 'game_over';
 
+export type GameMode = 'short' | 'long';
+
 export interface CreateGameSessionRequest {
   region: RegionFilter;
   genre: GenreFilter;
   era: EraFilter;
   artist?: string;
   guessTimeLimitMinutes?: number;
+  gameMode?: GameMode;
+  songCount?: number;
 }
 
 export interface GameSession {

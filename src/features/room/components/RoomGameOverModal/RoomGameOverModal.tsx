@@ -30,7 +30,7 @@ export const RoomGameOverModal: React.FC<RoomGameOverModalProps> = ({
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        zIndex: 100,
+        zIndex: 1000,
         padding: "1rem",
       }}
     >

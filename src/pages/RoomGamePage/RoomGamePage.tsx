@@ -77,6 +77,8 @@ export const RoomGamePage: React.FC<RoomGamePageProps> = ({
     isGuessLocked,
     isSongRevealed,
     isLoadingSong,
+    stages,
+    totalStages,
     startNewGame,
     togglePlay,
     advanceAttempt,
@@ -107,6 +109,7 @@ export const RoomGamePage: React.FC<RoomGamePageProps> = ({
       <div className={styles.gameMainArea}>
         {/* Üst Kontrol & Aşama Barı (Canlı Geri Sayım Rozeti ile) */}
         <StageControlBar
+          stages={stages}
           currentStageIndex={currentStageIndex}
           currentAttemptIndex={currentAttemptIndex}
           currentDuration={feedback?.isSuccess ? 8.0 : currentDuration}
@@ -133,7 +136,7 @@ export const RoomGamePage: React.FC<RoomGamePageProps> = ({
           isLoading={isLoadingSong}
           isSongRevealed={isSongRevealed}
           onNextSong={goToNextSong}
-          isLastStage={currentStageIndex >= STAGES.length - 1}
+          isLastStage={currentStageIndex >= totalStages - 1}
         />
 
         {/* Şarkı Bildirildiğinde YouTube Embed Oynatıcı */}

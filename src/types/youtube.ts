@@ -21,6 +21,7 @@ export interface YTPlayerVars {
   loop?: 0 | 1;
   modestbranding?: 0 | 1;
   origin?: string;
+  widget_referrer?: string;
   playsinline?: 0 | 1;
   rel?: 0 | 1;
   start?: number;

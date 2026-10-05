@@ -14,17 +14,27 @@ class WebAudioService {
   private isMuted: boolean = false;
 
   /**
-   * Sıradaki şarkının sesini YouTube IFrame Player üzerinden önbelleğe/kuyruğa alır.
+   * Sıradaki şarkının YouTube embed isteklerini tamamlar ve hazır (CUED) olmasını bekler.
    */
-  public async preloadSong(song: Song): Promise<void> {
+  public async preloadSong(song: Song): Promise<boolean> {
     const videoId = song.youtubeId || resolveYouTubeId(song);
     if (videoId) {
       try {
-        await youtubePlayerService.preloadVideo(videoId);
+        return await youtubePlayerService.prepareSong(videoId);
       } catch {
-        // Preload hatası oynatmayı engellemez
+        return false;
       }
     }
+    return false;
+  }
+
+  /**
+   * Şarkının embed isteklerinin tamamlanıp oynatmaya hazır olup olmadığını sorgular.
+   */
+  public isSongEmbedReady(song?: Song | null): boolean {
+    if (!song) return false;
+    const videoId = song.youtubeId || resolveYouTubeId(song);
+    return youtubePlayerService.isVideoEmbedReady(videoId);
   }
 
   /**

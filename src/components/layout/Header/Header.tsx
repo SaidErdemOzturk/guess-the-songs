@@ -1,6 +1,6 @@
-import React from 'react';
-import { useAuth } from '@/features/auth/context/AuthContext';
-import styles from './Header.module.css';
+import React from "react";
+import { useAuth } from "@/features/auth/context/AuthContext";
+import styles from "./Header.module.css";
 
 interface HeaderProps {
   onTitleClick?: () => void;
@@ -21,17 +21,17 @@ export const Header: React.FC<HeaderProps> = ({
     <header className={styles.headerWrapper}>
       <div className={styles.topBar}>
         <div className={styles.authControls}>
-          {onPlaylistViewerClick && (
+          {/* {onPlaylistViewerClick && (
             <button
               type="button"
               className={styles.playlistBtn}
               onClick={onPlaylistViewerClick}
-              title="YouTube Çalma Listesi Çekici (Tokensiz)"
+              title="YouTube Çalma Listesi Çekici"
             >
               <span>🎵</span>
               <span>Playlist Çekici</span>
             </button>
-          )}
+          )} */}
 
           {isAuthenticated && user ? (
             <>
@@ -66,7 +66,7 @@ export const Header: React.FC<HeaderProps> = ({
                   <span>Misafir Modu</span>
                 </div>
               )}
-              {onLoginClick && (
+              {/* {onLoginClick && (
                 <button
                   type="button"
                   className={styles.loginBtn}
@@ -74,7 +74,7 @@ export const Header: React.FC<HeaderProps> = ({
                 >
                   Giriş Yap
                 </button>
-              )}
+              )} */}
             </>
           )}
         </div>
@@ -84,14 +84,12 @@ export const Header: React.FC<HeaderProps> = ({
         <h1
           onClick={onTitleClick}
           className={styles.mainTitle}
-          style={{ cursor: onTitleClick ? 'pointer' : 'default' }}
+          style={{ cursor: onTitleClick ? "pointer" : "default" }}
         >
           <span className={styles.titleWhite}>şarkıyı</span>
           <span className={styles.titleGradient}>tahmin et</span>
         </h1>
-        <p className={styles.subtitle}>
-          bir saniyesinden parçayı tanı
-        </p>
+        <p className={styles.subtitle}>bir saniyesinden parçayı tanı</p>
       </div>
     </header>
   );

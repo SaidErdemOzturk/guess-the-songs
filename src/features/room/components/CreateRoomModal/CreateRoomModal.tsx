@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '@/features/auth/context/AuthContext';
 import { roomService } from '@/services/api/roomService';
+import { extractPlaylistId } from '@/services/api/youtubeService';
 import { Button, Input } from '@/components/ui';
 import type { Room } from '@/types/room';
 
@@ -18,6 +19,8 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
   const { user, token } = useAuth();
   const [roomName, setRoomName] = useState('');
   const [guessTimeLimitMinutes, setGuessTimeLimitMinutes] = useState<number>(1);
+  const [playlistSource, setPlaylistSource] = useState<'tr' | 'global' | 'custom'>('tr');
+  const [customPlaylistUrl, setCustomPlaylistUrl] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -30,6 +33,16 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
       return;
     }
 
+    let customPlaylistId: string | undefined = undefined;
+    if (playlistSource === 'custom') {
+      const cleaned = extractPlaylistId(customPlaylistUrl.trim());
+      if (!cleaned) {
+        setError('Lütfen geçerli bir YouTube çalma listesi linki veya ID girin.');
+        return;
+      }
+      customPlaylistId = cleaned;
+    }
+
     setIsSubmitting(true);
     setError(null);
 
@@ -38,6 +51,13 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
         {
           name: roomName.trim() || `${user.name}'in Odası`,
           guessTimeLimitMinutes: Math.max(1, guessTimeLimitMinutes),
+          settings: {
+            region: playlistSource === 'global' ? 'global' : 'tr',
+            genre: 'all',
+            era: 'all',
+            guessTimeLimitMinutes: Math.max(1, guessTimeLimitMinutes),
+            playlistId: customPlaylistId,
+          },
         },
         user,
         token
@@ -60,7 +80,7 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
         inset: 0,
         backgroundColor: 'rgba(0, 0, 0, 0.75)',
         backdropFilter: 'blur(8px)',
-        zIndex: 50,
+        zIndex: 1000,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -184,6 +204,93 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
             <p style={{ fontSize: '0.6875rem', color: '#6b7280', margin: 0 }}>
               Her şarkı için oyunculara tanınan süre. Süre dolduğunda seçim yapılmazsa otomatik olarak pes edilmiş sayılır.
             </p>
+          </div>
+
+          {/* Müzik Havuzu / Playlist Seçimi */}
+          <div>
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                fontSize: '0.75rem',
+                fontWeight: 600,
+                color: '#d1d5db',
+                marginBottom: '0.5rem',
+              }}
+            >
+              <span>🎵 Müzik Listesi / Şarkı Havuzu</span>
+            </label>
+
+            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.625rem' }}>
+              <button
+                type="button"
+                onClick={() => setPlaylistSource('tr')}
+                style={{
+                  flex: 1,
+                  padding: '0.5rem',
+                  borderRadius: '0.75rem',
+                  fontSize: '0.75rem',
+                  fontWeight: playlistSource === 'tr' ? 700 : 500,
+                  backgroundColor: playlistSource === 'tr' ? 'rgba(99, 102, 241, 0.3)' : 'rgba(31, 41, 55, 0.7)',
+                  border: playlistSource === 'tr' ? '1px solid #818cf8' : '1px solid rgba(255, 255, 255, 0.1)',
+                  color: playlistSource === 'tr' ? '#ffffff' : '#9ca3af',
+                  cursor: 'pointer',
+                  transition: 'all 150ms ease',
+                }}
+              >
+                🇹🇷 Türkiye
+              </button>
+              <button
+                type="button"
+                onClick={() => setPlaylistSource('global')}
+                style={{
+                  flex: 1,
+                  padding: '0.5rem',
+                  borderRadius: '0.75rem',
+                  fontSize: '0.75rem',
+                  fontWeight: playlistSource === 'global' ? 700 : 500,
+                  backgroundColor: playlistSource === 'global' ? 'rgba(99, 102, 241, 0.3)' : 'rgba(31, 41, 55, 0.7)',
+                  border: playlistSource === 'global' ? '1px solid #818cf8' : '1px solid rgba(255, 255, 255, 0.1)',
+                  color: playlistSource === 'global' ? '#ffffff' : '#9ca3af',
+                  cursor: 'pointer',
+                  transition: 'all 150ms ease',
+                }}
+              >
+                🌍 Global
+              </button>
+              <button
+                type="button"
+                onClick={() => setPlaylistSource('custom')}
+                style={{
+                  flex: 1,
+                  padding: '0.5rem',
+                  borderRadius: '0.75rem',
+                  fontSize: '0.75rem',
+                  fontWeight: playlistSource === 'custom' ? 700 : 500,
+                  backgroundColor: playlistSource === 'custom' ? 'rgba(99, 102, 241, 0.3)' : 'rgba(31, 41, 55, 0.7)',
+                  border: playlistSource === 'custom' ? '1px solid #818cf8' : '1px solid rgba(255, 255, 255, 0.1)',
+                  color: playlistSource === 'custom' ? '#ffffff' : '#9ca3af',
+                  cursor: 'pointer',
+                  transition: 'all 150ms ease',
+                }}
+              >
+                🔗 Özel Liste
+              </button>
+            </div>
+
+            {playlistSource === 'custom' && (
+              <div style={{ marginTop: '0.5rem' }}>
+                <Input
+                  placeholder="YouTube Playlist URL veya ID (örn: PL...)"
+                  value={customPlaylistUrl}
+                  onChange={(e) => setCustomPlaylistUrl(e.target.value)}
+                />
+                <p style={{ fontSize: '0.6875rem', color: '#818cf8', marginTop: '0.25rem', marginBottom: 0 }}>
+                  ⚡ Tokensiz Invidious API ile taranır. Telif kısıtlamalı parçalar otomatik atlanır.
+                </p>
+              </div>
+            )}
           </div>
 
           <Button type="submit" variant="primary" size="md" isLoading={isSubmitting} style={{ marginTop: '0.25rem' }}>
