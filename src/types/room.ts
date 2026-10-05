@@ -18,7 +18,10 @@ export interface RoomSettings {
   genre: GenreFilter;
   era: EraFilter;
   guessTimeLimitMinutes?: number;
+  gameMode?: 'short' | 'long';
+  songCount?: number;
   playlistId?: string;
+  playlistUrl?: string;
 }
 
 export interface Room {
@@ -36,6 +39,7 @@ export interface Room {
   currentSong?: Song | null;
   currentRound?: number;
   currentRoundStartedAt?: string;
+  currentRoundEndsAt?: string;
 }
 
 export interface CreateRoomRequest {

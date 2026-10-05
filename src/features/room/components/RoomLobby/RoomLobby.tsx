@@ -8,16 +8,40 @@ interface RoomLobbyProps {
   room: Room;
   onStartGame: () => void;
   onLeaveRoom: () => void;
+  onKickParticipant?: (targetUserId: string) => Promise<void>;
 }
 
 export const RoomLobby: React.FC<RoomLobbyProps> = ({
   room,
   onStartGame,
   onLeaveRoom,
+  onKickParticipant,
 }) => {
   const { user } = useAuth();
   const [copySuccess, setCopySuccess] = useState(false);
+  const [kickingUserId, setKickingUserId] = useState<string | null>(null);
+  const [kickError, setKickError] = useState<string | null>(null);
   const isHost = room.hostId === user?.id;
+
+  const handleKick = async (targetUserId: string, targetUserName: string) => {
+    if (!isHost || !user) return;
+    const confirmed = window.confirm(`"${targetUserName}" adlı oyuncuyu odadan çıkarmak istediğinize emin misiniz?`);
+    if (!confirmed) return;
+
+    try {
+      setKickingUserId(targetUserId);
+      setKickError(null);
+      if (onKickParticipant) {
+        await onKickParticipant(targetUserId);
+      } else {
+        await roomService.kickParticipant(room.code, user.id, targetUserId);
+      }
+    } catch (err: any) {
+      setKickError(err?.message || 'Oyuncu odadan çıkarılırken bir hata oluştu.');
+    } finally {
+      setKickingUserId(null);
+    }
+  };
 
   const handleInvite = async () => {
     const inviteLink = roomService.generateInviteLink(room.code);
@@ -166,7 +190,7 @@ export const RoomLobby: React.FC<RoomLobbyProps> = ({
             <h4 style={{ fontSize: '0.875rem', fontWeight: 700, color: '#e2e8f0' }}>
               Oyuncular ({room.participants.length})
             </h4>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', flexWrap: 'wrap' }}>
               <span
                 style={{
                   fontSize: '0.75rem',
@@ -177,11 +201,50 @@ export const RoomLobby: React.FC<RoomLobbyProps> = ({
                   fontWeight: 600,
                 }}
               >
-                ⏱ {room.guessTimeLimitMinutes || 1} Dakika
+                ⏱ {room.guessTimeLimitMinutes || 1} Dk
               </span>
-              <span style={{ fontSize: '0.75rem', color: '#6b7280' }}>Hazır bekleniyor</span>
+              <span
+                style={{
+                  fontSize: '0.75rem',
+                  color: '#ec4899',
+                  backgroundColor: 'rgba(236, 72, 153, 0.15)',
+                  padding: '0.2rem 0.5rem',
+                  borderRadius: '9999px',
+                  fontWeight: 600,
+                }}
+              >
+                🎯 {room.settings?.gameMode === 'long' ? `${room.settings?.songCount || 10} Şarkı (Uzun)` : '3 Şarkı (Standart)'}
+              </span>
+              <span
+                style={{
+                  fontSize: '0.75rem',
+                  color: '#34d399',
+                  backgroundColor: 'rgba(52, 211, 153, 0.15)',
+                  padding: '0.2rem 0.5rem',
+                  borderRadius: '9999px',
+                  fontWeight: 600,
+                }}
+              >
+                {room.settings?.playlistId ? '🔗 Özel Liste' : (room.settings?.region === 'global' ? '🌍 Global' : '🇹🇷 Türkiye')}
+              </span>
             </div>
           </div>
+
+          {kickError && (
+            <div
+              style={{
+                padding: '0.5rem 0.75rem',
+                backgroundColor: 'rgba(239, 68, 68, 0.2)',
+                border: '1px solid rgba(239, 68, 68, 0.4)',
+                borderRadius: 'var(--radius-sm)',
+                color: '#f87171',
+                fontSize: '0.8125rem',
+                marginBottom: '0.75rem',
+              }}
+            >
+              ⚠️ {kickError}
+            </div>
+          )}
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
             {room.participants.map((p, idx) => (
@@ -230,7 +293,47 @@ export const RoomLobby: React.FC<RoomLobbyProps> = ({
                   {p.isHost ? (
                     <Badge variant="warning">👑 Oda Sahibi</Badge>
                   ) : (
-                    <Badge variant="success">✓ Katıldı</Badge>
+                    <>
+                      <Badge variant="success">✓ Katıldı</Badge>
+                      {isHost && p.user.id !== user?.id && (
+                        <button
+                          type="button"
+                          onClick={() => handleKick(p.user.id, p.user.name)}
+                          disabled={kickingUserId === p.user.id}
+                          title={`${p.user.name} kullanıcısını odadan at`}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '0.25rem',
+                            padding: '0.25rem 0.55rem',
+                            fontSize: '0.75rem',
+                            fontWeight: 600,
+                            borderRadius: 'var(--radius-sm)',
+                            backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                            color: '#f87171',
+                            border: '1px solid rgba(239, 68, 68, 0.35)',
+                            cursor: kickingUserId === p.user.id ? 'not-allowed' : 'pointer',
+                            opacity: kickingUserId === p.user.id ? 0.6 : 1,
+                            transition: 'all 0.15s ease',
+                          }}
+                          onMouseEnter={(e) => {
+                            if (kickingUserId !== p.user.id) {
+                              e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.3)';
+                              e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.6)';
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            if (kickingUserId !== p.user.id) {
+                              e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.15)';
+                              e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.35)';
+                            }
+                          }}
+                        >
+                          <i className="fa-solid fa-user-xmark" style={{ fontSize: '0.75rem' }} />
+                          <span>{kickingUserId === p.user.id ? 'Atılıyor...' : 'Odadan At'}</span>
+                        </button>
+                      )}
+                    </>
                   )}
                 </div>
               </div>

@@ -5,6 +5,7 @@ import type {
   AuthSession,
   LoginCredentials,
   RegisterCredentials,
+  ResetPasswordCredentials,
   User,
   AccessToken,
   AuthResult,
@@ -177,6 +178,43 @@ export const authService = {
 
       storage.set(AUTH_STORAGE_KEY, session);
       return session;
+    } catch (error: any) {
+      const isConnectionError =
+        error?.message?.includes('Failed to fetch') ||
+        error?.message?.includes('NetworkError') ||
+        error?.message?.includes('ECONNREFUSED');
+
+      if (isConnectionError) {
+        throw new Error(
+          'Backend sunucusuna ulaşılamadı. Lütfen backend API servisinin çalıştığından emin olun (http://localhost:5216).'
+        );
+      }
+
+      throw error;
+    }
+  },
+
+  /**
+   * Şifre sıfırlama (Backend POST /api/auth/reset-password)
+   */
+  async resetPassword(credentials: ResetPasswordCredentials): Promise<string> {
+    try {
+      const response = await apiClient.post<{ success: boolean; message: string } | string>(
+        ENDPOINTS.AUTH.RESET_PASSWORD,
+        {
+          email: credentials.email.trim(),
+          newPassword: credentials.newPassword,
+        }
+      );
+
+      const msg =
+        typeof response === 'object' && response?.message
+          ? response.message
+          : typeof response === 'string'
+          ? response
+          : 'Şifreniz başarıyla güncellendi.';
+
+      return msg;
     } catch (error: any) {
       const isConnectionError =
         error?.message?.includes('Failed to fetch') ||

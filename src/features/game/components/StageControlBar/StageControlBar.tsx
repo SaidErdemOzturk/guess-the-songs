@@ -17,7 +17,8 @@ interface StageControlBarProps {
   potentialPoints?: number;
   lastEarnedPoints?: number | null;
   roundCountdownSeconds?: number;
-  onBackHome: () => void;
+  showChangeMode?: boolean;
+  onBackHome?: () => void;
 }
 
 // 4 Deneme Aşamalarının süre dağılımı (0.5s, +1.5s = 2.0s, +6.0s = 8.0s, +7.0s = 15.0s)
@@ -38,6 +39,7 @@ export const StageControlBar: React.FC<StageControlBarProps> = ({
   potentialPoints = 800,
   lastEarnedPoints = null,
   roundCountdownSeconds,
+  showChangeMode = true,
   onBackHome,
 }) => {
   const activeStages = stages && stages.length > 0 ? stages : STAGES;
@@ -91,32 +93,34 @@ export const StageControlBar: React.FC<StageControlBarProps> = ({
           width: '100%',
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'space-between',
+          justifyContent: showChangeMode ? 'space-between' : 'flex-end',
           flexWrap: 'wrap',
           gap: '0.75rem',
           marginBottom: '1rem',
         }}
       >
-        <button
-          onClick={onBackHome}
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '0.375rem',
-            padding: '0.375rem 0.75rem',
-            borderRadius: '9999px',
-            backgroundColor: 'rgba(17, 24, 39, 0.85)',
-            border: '1px solid rgba(255, 255, 255, 0.1)',
-            fontSize: '0.75rem',
-            color: '#9ca3af',
-            fontWeight: 500,
-            cursor: 'pointer',
-            transition: 'all 150ms ease',
-          }}
-        >
-          <i className="fa-solid fa-chevron-left" style={{ fontSize: '10px' }} />
-          <span>Modu değiştir</span>
-        </button>
+        {showChangeMode && onBackHome && (
+          <button
+            onClick={onBackHome}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.375rem',
+              padding: '0.375rem 0.75rem',
+              borderRadius: '9999px',
+              backgroundColor: 'rgba(17, 24, 39, 0.85)',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+              fontSize: '0.75rem',
+              color: '#9ca3af',
+              fontWeight: 500,
+              cursor: 'pointer',
+              transition: 'all 150ms ease',
+            }}
+          >
+            <i className="fa-solid fa-chevron-left" style={{ fontSize: '10px' }} />
+            <span>Modu değiştir</span>
+          </button>
+        )}
 
         {/* Durum Rozetleri (Geri Sayım Sayacı, Aktif Puan & Bilince Kazanılacak Puan) */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', flexWrap: 'wrap' }}>

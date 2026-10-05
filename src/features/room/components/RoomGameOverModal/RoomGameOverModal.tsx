@@ -5,13 +5,15 @@ interface RoomGameOverModalProps {
   room: Room;
   currentUserId?: string | null;
   score: number;
-  onBackToHome: () => void;
+  onBackToRoom: () => void;
+  onBackToHome?: () => void;
 }
 
 export const RoomGameOverModal: React.FC<RoomGameOverModalProps> = ({
   room,
   currentUserId,
   score,
+  onBackToRoom,
   onBackToHome,
 }) => {
   const sortedParticipants = [...room.participants].sort(
@@ -240,7 +242,8 @@ export const RoomGameOverModal: React.FC<RoomGameOverModalProps> = ({
         )}
 
         <button
-          onClick={onBackToHome}
+          onClick={onBackToRoom || onBackToHome}
+          id="btn-back-to-room"
           style={{
             width: "100%",
             padding: "0.875rem",
@@ -261,7 +264,8 @@ export const RoomGameOverModal: React.FC<RoomGameOverModalProps> = ({
             e.currentTarget.style.transform = "scale(1)";
           }}
         >
-          Ana Sayfaya Dön
+          <i className="fa-solid fa-door-open" style={{ marginRight: "0.5rem" }} />
+          Odaya Dön
         </button>
       </div>
     </div>

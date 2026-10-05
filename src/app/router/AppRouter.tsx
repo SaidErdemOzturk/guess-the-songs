@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { MainLayout } from '@/layouts/MainLayout';
 import { HomePage } from '@/pages/HomePage/HomePage';
 import { GamePage } from '@/pages/GamePage/GamePage';
@@ -54,6 +54,7 @@ export const AppRouter: React.FC = () => {
     if (activeRoomCode) {
       const url = new URL(window.location.href);
       url.searchParams.delete('room');
+      url.searchParams.delete('invite');
       window.history.replaceState({}, '', url.pathname);
       setActiveRoomCode(null);
     }
@@ -68,6 +69,7 @@ export const AppRouter: React.FC = () => {
       setViewMode('room');
       const url = new URL(window.location.href);
       url.searchParams.set('room', code);
+      url.searchParams.set('invite', 'true');
       window.history.replaceState({}, '', `${url.pathname}?${url.searchParams.toString()}`);
     } else {
       setViewMode('home');
@@ -87,24 +89,31 @@ export const AppRouter: React.FC = () => {
     }
   };
 
+  const [activeRoom, setActiveRoom] = useState<Room | null>(null);
+
   const handleRoomCreated = (room: Room) => {
+    setActiveRoom(room);
     setActiveRoomCode(room.code);
     setIsCreateRoomModalOpen(false);
     setViewMode('room');
     const url = new URL(window.location.href);
     url.searchParams.set('room', room.code);
+    url.searchParams.delete('invite');
     window.history.replaceState({}, '', `${url.pathname}?${url.searchParams.toString()}`);
   };
 
-  const handleStartRoomGame = (room: Room) => {
+  const handleStartRoomGame = useCallback((room: Room) => {
+    setActiveRoom(room);
     setSessionParams({
       region: room.settings?.region || 'tr',
       genre: room.settings?.genre || 'all',
       era: room.settings?.era || 'all',
       guessTimeLimitMinutes: room.guessTimeLimitMinutes || room.settings?.guessTimeLimitMinutes || 1,
+      gameMode: room.settings?.gameMode || 'short',
+      songCount: room.settings?.songCount || (room.settings?.gameMode === 'long' ? 10 : 3),
     });
     setViewMode('game');
-  };
+  }, []);
 
   const getContentMaxWidth = () => {
     switch (viewMode) {
@@ -160,7 +169,9 @@ export const AppRouter: React.FC = () => {
           sessionParams={sessionParams}
           roomCode={activeRoomCode}
           currentUserId={user?.id}
+          initialRoom={activeRoom}
           onBackToHome={handleBackToHome}
+          onBackToRoom={() => setViewMode('room')}
         />
       )}
 

@@ -11,6 +11,10 @@ interface AudioPlayerProps {
   isSongRevealed?: boolean;
   onNextSong?: () => void;
   isLastStage?: boolean;
+  isRoomMode?: boolean;
+  isHost?: boolean;
+  canSkip?: boolean;
+  skipWaitingReason?: string;
 }
 
 export const AudioPlayer: React.FC<AudioPlayerProps> = ({
@@ -23,6 +27,10 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
   isSongRevealed = false,
   onNextSong,
   isLastStage = false,
+  isRoomMode = false,
+  isHost = true,
+  canSkip = true,
+  skipWaitingReason,
 }) => {
   const displayTime = isPlaying
     ? `${playbackSeconds.toFixed(1)}s`
@@ -66,7 +74,15 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
               animationDuration: isPlaying ? "3s" : "0s",
             }}
           />
-          <span>Şarkı çalıyor · İstediğin an sonraki şarkıya geçebilirsin</span>
+          <span>
+            {isRoomMode
+              ? isHost
+                ? canSkip
+                  ? "Tüm oyuncular tahminini tamamladı · Sonraki şarkıya geçebilirsin"
+                  : "Diğer oyuncuların tahmini bekleniyor..."
+                : "Şarkı çalıyor · Oda sahibinin sıradaki şarkıya geçmesi bekleniyor"
+              : "Şarkı çalıyor · İstediğin an sonraki şarkıya geçebilirsin"}
+          </span>
         </div>
       )}
 
@@ -91,51 +107,145 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
               zIndex: 10,
             }}
           >
-            <button
-              onClick={onNextSong}
-              disabled={isLoading}
-              id="btn-next-song"
-              style={{
-                position: "relative",
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: "0.625rem",
-                padding: "0.875rem 2rem",
-                borderRadius: "9999px",
-                background: feedback?.isSuccess
-                  ? "linear-gradient(135deg, #10b981 0%, #6366f1 100%)"
-                  : "linear-gradient(135deg, #6366f1 0%, #ec4899 100%)",
-                border: feedback?.isSuccess
-                  ? "1px solid rgba(52, 211, 153, 0.5)"
-                  : "1px solid rgba(236, 72, 153, 0.5)",
-                boxShadow: feedback?.isSuccess
-                  ? "0 0 25px rgba(16, 185, 129, 0.5), 0 4px 20px rgba(0, 0, 0, 0.4)"
-                  : "0 0 25px rgba(99, 102, 241, 0.5), 0 4px 20px rgba(0, 0, 0, 0.4)",
-                color: "#ffffff",
-                fontSize: "1.0625rem",
-                fontWeight: 700,
-                letterSpacing: "0.01em",
-                cursor: isLoading ? "wait" : "pointer",
-                transition: "all 200ms cubic-bezier(0.4, 0, 0.2, 1)",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.transform = "scale(1.04)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = "scale(1)";
-              }}
-            >
-              <i
-                className="fa-solid fa-forward-step"
-                style={{ fontSize: "1.125rem" }}
-              />
-              <span>{isLastStage ? "Oyunu Bitir" : "Sonraki Şarkıya Geç"}</span>
-              <i
-                className="fa-solid fa-arrow-right"
-                style={{ fontSize: "0.875rem", opacity: 0.85 }}
-              />
-            </button>
+            {isRoomMode && !isHost ? (
+              /* Oda Modunda Oda Sahibi Olmayan Kullanıcılar için Bekleme Rozeti */
+              <div
+                id="btn-waiting-host"
+                style={{
+                  position: "relative",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "0.625rem",
+                  padding: "0.875rem 2rem",
+                  borderRadius: "9999px",
+                  background: "rgba(30, 41, 59, 0.85)",
+                  border: "1px solid rgba(99, 102, 241, 0.35)",
+                  boxShadow: "0 4px 20px rgba(0, 0, 0, 0.35)",
+                  color: "#c7d2fe",
+                  fontSize: "1rem",
+                  fontWeight: 600,
+                  letterSpacing: "0.01em",
+                }}
+              >
+                <i
+                  className="fa-solid fa-hourglass-half fa-spin"
+                  style={{
+                    color: "#818cf8",
+                    fontSize: "1.125rem",
+                    animationDuration: "3s",
+                  }}
+                />
+                <span>
+                  {skipWaitingReason ||
+                    "Oda sahibinin sıradaki şarkıya geçmesi bekleniyor..."}
+                </span>
+              </div>
+            ) : (
+              /* Tek Oyunculu veya Oda Sahibi için Buton */
+              <button
+                onClick={onNextSong}
+                disabled={isLoading || (isRoomMode && !canSkip)}
+                id="btn-next-song"
+                style={{
+                  position: "relative",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "0.625rem",
+                  padding: "0.875rem 2rem",
+                  borderRadius: "9999px",
+                  background:
+                    isRoomMode && !canSkip
+                      ? "rgba(55, 65, 81, 0.85)"
+                      : feedback?.isSuccess
+                        ? "linear-gradient(135deg, #10b981 0%, #6366f1 100%)"
+                        : "linear-gradient(135deg, #6366f1 0%, #ec4899 100%)",
+                  border:
+                    isRoomMode && !canSkip
+                      ? "1px solid rgba(156, 163, 175, 0.3)"
+                      : feedback?.isSuccess
+                        ? "1px solid rgba(52, 211, 153, 0.5)"
+                        : "1px solid rgba(236, 72, 153, 0.5)",
+                  boxShadow:
+                    isRoomMode && !canSkip
+                      ? "0 4px 15px rgba(0, 0, 0, 0.3)"
+                      : feedback?.isSuccess
+                        ? "0 0 25px rgba(16, 185, 129, 0.5), 0 4px 20px rgba(0, 0, 0, 0.4)"
+                        : "0 0 25px rgba(99, 102, 241, 0.5), 0 4px 20px rgba(0, 0, 0, 0.4)",
+                  color: isRoomMode && !canSkip ? "#9ca3af" : "#ffffff",
+                  fontSize: "1.0625rem",
+                  fontWeight: 700,
+                  letterSpacing: "0.01em",
+                  cursor:
+                    isLoading || (isRoomMode && !canSkip)
+                      ? "not-allowed"
+                      : "pointer",
+                  transition: "all 200ms cubic-bezier(0.4, 0, 0.2, 1)",
+                  opacity: isRoomMode && !canSkip ? 0.8 : 1,
+                }}
+                onMouseEnter={(e) => {
+                  if (!isRoomMode || canSkip) {
+                    e.currentTarget.style.transform = "scale(1.04)";
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = "scale(1)";
+                }}
+                title={
+                  isRoomMode && !canSkip
+                    ? skipWaitingReason || "Tüm oyuncuların tahmini bekleniyor"
+                    : undefined
+                }
+              >
+                <i
+                  className={
+                    isRoomMode && !canSkip
+                      ? "fa-solid fa-spinner fa-spin"
+                      : "fa-solid fa-forward-step"
+                  }
+                  style={{ fontSize: "1.125rem" }}
+                />
+                <span>
+                  {isRoomMode && !canSkip
+                    ? skipWaitingReason || "Oyuncuların tahmini bekleniyor..."
+                    : isLastStage
+                      ? "Oyunu Bitir"
+                      : "Sonraki Şarkıya Geç"}
+                </span>
+                {(!isRoomMode || canSkip) && (
+                  <i
+                    className="fa-solid fa-arrow-right"
+                    style={{ fontSize: "0.875rem", opacity: 0.85 }}
+                  />
+                )}
+              </button>
+            )}
+          </div>
+        ) : isRoomMode && !isHost && isLoading ? (
+          <div
+            id="btn-waiting-host-song"
+            style={{
+              position: "relative",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "0.625rem",
+              padding: "0.875rem 2rem",
+              borderRadius: "9999px",
+              background: "rgba(30, 41, 59, 0.85)",
+              border: "1px solid rgba(99, 102, 241, 0.35)",
+              boxShadow: "0 4px 20px rgba(0, 0, 0, 0.35)",
+              color: "#c7d2fe",
+              fontSize: "1rem",
+              fontWeight: 600,
+            }}
+          >
+            <i
+              className="fa-solid fa-spinner fa-spin"
+              style={{ color: "#818cf8", fontSize: "1.125rem" }}
+            />
+            <span>Oda sahibinin şarkıyı başlatması bekleniyor...</span>
           </div>
         ) : (
           <>
@@ -148,8 +258,16 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
               }}
               disabled={isLoading}
               id="btn-play-audio"
-              aria-label={isLoading ? "Şarkı hazırlanıyor..." : isPlaying ? "Şarkıyı Durdur" : "Şarkıyı Çal"}
-              title={isLoading ? "Şarkı hazırlanıyor, lütfen bekleyin..." : undefined}
+              aria-label={
+                isLoading
+                  ? "Şarkı hazırlanıyor..."
+                  : isPlaying
+                    ? "Şarkıyı Durdur"
+                    : "Şarkıyı Çal"
+              }
+              title={
+                isLoading ? "Şarkı hazırlanıyor, lütfen bekleyin..." : undefined
+              }
               style={{
                 position: "relative",
                 width: "6.5rem",

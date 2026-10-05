@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ATTEMPT_DURATIONS, STAGES } from '@/constants/game';
 import { calculatePointsByDuration, gameService } from '@/services/api/gameService';
-import { roomService } from '@/services/api/roomService';
+import { authService } from '@/services/api/authService';
+import { roomService, parseServerDateMs } from '@/services/api/roomService';
 import { songService } from '@/services/api/songService';
 import { youtubeService } from '@/services/api/youtubeService';
 import { webAudioService } from '@/services/audio/webAudioService';
@@ -18,15 +19,43 @@ export interface UseGameRoundOptions {
   roomCode?: string | null;
   userId?: string | null;
   guessTimeLimitMinutes?: number;
+  room?: Room | null;
+  isHost?: boolean;
   onScoreUpdate?: (points: number, duration: number, totalScore: number) => void;
 }
 
 export function useGameRound(options?: UseGameRoundOptions) {
+  const roomCode = options?.roomCode;
+  const userId = options?.userId;
+  const guessTimeLimitMinutesOption = options?.guessTimeLimitMinutes;
+  const roomOption = options?.room;
+  const isHostOption = options?.isHost;
+  const onScoreUpdate = options?.onScoreUpdate;
+
+  const isHost = Boolean(
+    !roomCode ||
+    isHostOption ||
+    (roomOption &&
+      userId &&
+      (String(roomOption.hostId) === String(userId) ||
+        roomOption.participants?.find((p) => String(p.user.id) === String(userId))?.isHost))
+  );
+
+  const onScoreUpdateRef = useRef(onScoreUpdate);
+  useEffect(() => {
+    onScoreUpdateRef.current = onScoreUpdate;
+  }, [onScoreUpdate]);
+
   const [currentRegion, setCurrentRegion] = useState<'tr' | 'global'>('tr');
   const [currentStageIndex, setCurrentStageIndex] = useState(0);
   const [currentAttemptIndex, setCurrentAttemptIndex] = useState(0);
   const [songsPool, setSongsPool] = useState<Song[]>([]);
   const [currentSong, setCurrentSong] = useState<Song | null>(null);
+  const currentSongRef = useRef<Song | null>(null);
+  useEffect(() => {
+    currentSongRef.current = currentSong;
+  }, [currentSong]);
+
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackSeconds, setPlaybackSeconds] = useState(0);
   const [playbackRatio, setPlaybackRatio] = useState(0);
@@ -35,19 +64,28 @@ export function useGameRound(options?: UseGameRoundOptions) {
   const [selectedCustomArtist, setSelectedCustomArtist] = useState<string | null>(null);
   const [score, setScore] = useState(0);
   const [lastEarnedPoints, setLastEarnedPoints] = useState<number | null>(null);
-  const isRoomMode = Boolean(options?.roomCode);
+  const isRoomMode = Boolean(roomCode);
   const [guessTimeLimitMinutes, setGuessTimeLimitMinutes] = useState<number | undefined>(
-    isRoomMode ? (options?.guessTimeLimitMinutes || 1) : undefined
+    isRoomMode ? (guessTimeLimitMinutesOption || 1) : undefined
   );
   const [roundCountdownSeconds, setRoundCountdownSeconds] = useState<number | undefined>(
-    isRoomMode ? ((options?.guessTimeLimitMinutes || 1) * 60) : undefined
+    isRoomMode ? ((guessTimeLimitMinutesOption || 1) * 60) : undefined
   );
   const [isGuessLocked, setIsGuessLocked] = useState(false);
   const [isLoadingSong, setIsLoadingSong] = useState(true);
 
   const [gameMode, setGameMode] = useState<GameMode>('short');
+  const gameModeRef = useRef<GameMode>('short');
+  useEffect(() => {
+    gameModeRef.current = gameMode;
+  }, [gameMode]);
+
   const [gameStages, setGameStages] = useState<GameStage[]>(STAGES);
   const usedSongIdsRef = useRef<Set<string | number>>(new Set());
+  const customPlaylistSongsRef = useRef<Song[]>([]);
+
+  const isHandlingErrorRef = useRef(false);
+  const consecutiveErrorCountRef = useRef(0);
 
   const resetTimerRef = useRef<number | null>(null);
 
@@ -69,19 +107,173 @@ export function useGameRound(options?: UseGameRoundOptions) {
 
   // Oda ayarlarından gelen süre sınırı güncellenirse senkronize et (Sadece oda modunda)
   useEffect(() => {
-    if (!options?.roomCode) {
+    if (!roomCode) {
       setGuessTimeLimitMinutes(undefined);
       setRoundCountdownSeconds(undefined);
       return;
     }
 
-    if (options.guessTimeLimitMinutes && options.guessTimeLimitMinutes !== guessTimeLimitMinutes) {
-      setGuessTimeLimitMinutes(options.guessTimeLimitMinutes);
-      setRoundCountdownSeconds(options.guessTimeLimitMinutes * 60);
+    if (guessTimeLimitMinutesOption && guessTimeLimitMinutesOption !== guessTimeLimitMinutes) {
+      setGuessTimeLimitMinutes(guessTimeLimitMinutesOption);
     }
-  }, [options?.roomCode, options?.guessTimeLimitMinutes, guessTimeLimitMinutes]);
+  }, [roomCode, guessTimeLimitMinutesOption, guessTimeLimitMinutes]);
 
-  // Yeni oyun başlatma (İlk aşama olan 'Kolay' için ilgili bölgenin playlistini çeker)
+
+  // Sıradaki veya yedek şarkıyı seçen ortak fonksiyon
+  const pickNextSong = useCallback(
+    async (stageIdx: number, excludeId?: string | number, explicitMode?: GameMode): Promise<Song | null> => {
+      const activeMode = explicitMode || gameModeRef.current || gameMode;
+      const customList = customPlaylistSongsRef.current;
+      if (customList.length > 0) {
+        // Özel playlist varsa BU playlist içerisinden şarkı gelsin
+        const available = customList.filter((s) => {
+          if (excludeId && (s.id === excludeId || s.youtubeId === excludeId)) return false;
+          if (usedSongIdsRef.current.has(s.id)) return false;
+          if (s.youtubeId && usedSongIdsRef.current.has(s.youtubeId)) return false;
+          if (youtubePlayerService.isVideoUnplayable(s.youtubeId)) return false;
+          return true;
+        });
+
+        if (available.length > 0) {
+          const randomIndex = Math.floor(Math.random() * available.length);
+          return available[randomIndex];
+        }
+
+        // Tüm şarkılar kullanıldıysa en azından unplayable olmayan herhangi birini seç
+        const playable = customList.filter(
+          (s) =>
+            (!excludeId || (s.id !== excludeId && s.youtubeId !== excludeId)) &&
+            !youtubePlayerService.isVideoUnplayable(s.youtubeId)
+        );
+        if (playable.length > 0) {
+          return playable[Math.floor(Math.random() * playable.length)];
+        }
+        return customList[0] || null;
+      }
+
+      // Özel playlist yoksa aktif olan varsayılan playlistten devam etsin
+      if (activeMode === 'long') {
+        const excludeList = Array.from(usedSongIdsRef.current);
+        if (excludeId) excludeList.push(excludeId);
+        return await songService.getRandomSongFromCombinedPool(currentRegion, excludeList);
+      }
+
+      return await songService.getRandomSongForStage(currentRegion, stageIdx, excludeId);
+    },
+    [currentRegion, gameMode]
+  );
+
+  // Oda durumu değiştiğinde katılımcının tahmin durumunu, yetkili süresini ve oyun modunu senkronize et
+  useEffect(() => {
+    if (!roomCode || !roomOption) return;
+
+    if (roomOption.settings) {
+      const mode = roomOption.settings.gameMode || 'short';
+      setGameMode(mode);
+      if (mode === 'long') {
+        const count = roomOption.settings.songCount || 10;
+        setGameStages(
+          Array.from({ length: count }, (_, i) => ({
+            stage: i + 1,
+            name: `Şarkı ${i + 1}`,
+            duration: 0.5,
+            skipAdd: '+1.5s',
+            widthPercent: `${Math.round(100 / count)}%`,
+          }))
+        );
+      } else {
+        setGameStages(STAGES);
+      }
+
+      // Misafir oyuncu girdiğinde özel playlist şarkılarını arama havuzuna dahil etmek için yükle
+      const customPlaylistId = roomOption.settings.playlistId;
+      if (customPlaylistId && customPlaylistSongsRef.current.length === 0) {
+        youtubeService
+          .getPlaylistSongs(customPlaylistId, {
+            limit: 100,
+            region: roomOption.settings.region || 'tr',
+          })
+          .then((customSongs) => {
+            if (customSongs.length > 0) {
+              customPlaylistSongsRef.current = customSongs;
+              youtubeService.registerKnownSongs(customSongs);
+              songService.combinedPool = [...customSongs, ...songService.combinedPool];
+              const uniqueMap = new Map<string | number, Song>();
+              for (const s of songService.combinedPool) {
+                if (!uniqueMap.has(s.id)) uniqueMap.set(s.id, s);
+              }
+              songService.combinedPool = Array.from(uniqueMap.values());
+            }
+          })
+          .catch((err) => {
+            console.warn('[GameRound] Özel playlist ön yükleme hatası:', err);
+          });
+      }
+    }
+
+    if (roomOption.currentRound && roomOption.currentRound > 1) {
+      setCurrentStageIndex(Math.max(0, roomOption.currentRound - 1));
+    }
+
+    // Ortak şarkı odaya eklendiğinde veya değiştiğinde katılımcının şarkısını anında senkronize et
+    if (roomOption.currentSong) {
+      const incoming = roomOption.currentSong;
+      const current = currentSongRef.current;
+      if (!current || (current.id !== incoming.id && current.youtubeId !== incoming.youtubeId)) {
+        currentSongRef.current = incoming;
+        setCurrentSong(incoming);
+        setSongsPool([incoming]);
+        setIsLoadingSong(false);
+        void webAudioService.preloadSong(incoming);
+      }
+    } else if (isHost && !currentSongRef.current && roomOption.status === 'in_game' && !isGameOver) {
+      // Fail-safe: Oda sahibi oyunda ama şarkı henüz belirlenmemişse otomatik seçip odaya ayarla
+      pickNextSong(currentStageIndex).then((song) => {
+        if (song && !currentSongRef.current) {
+          currentSongRef.current = song;
+          setCurrentSong(song);
+          setSongsPool([song]);
+          setIsLoadingSong(false);
+          if (roomCode) {
+            void roomService.setCurrentSong(roomCode, song, currentStageIndex + 1);
+          }
+          void webAudioService.preloadSong(song);
+        }
+      });
+    }
+
+    // Yetkili saat bazlı kalan süre hesaplama
+    if (roomOption.currentRoundStartedAt && roomOption.status === 'in_game') {
+      const remaining = roomService.getRemainingRoundSeconds(roomOption);
+      setRoundCountdownSeconds(remaining);
+    }
+
+    // Kullanıcı bu raund için zaten tahmin yapmışsa (sayfa yenilense dahi) girişi kilitle
+    if (userId && roomOption.participants) {
+      const participant = roomOption.participants.find((p) => String(p.user.id) === String(userId));
+      if (participant) {
+        if (participant.score !== undefined && participant.score > 0) {
+          setScore((prev) => Math.max(prev, participant.score));
+        }
+        if (participant.lastPointsEarned !== null && participant.lastPointsEarned !== undefined) {
+          setIsGuessLocked(true);
+          setLastEarnedPoints(participant.lastPointsEarned);
+          setFeedback((prev) => {
+            if (prev) return prev;
+            return {
+              isSuccess: participant.lastPointsEarned! > 0,
+              message: participant.lastPointsEarned! > 0
+                ? `Tebrikler! ${participant.lastPointsEarned} puan kazandın!`
+                : `Bu şarkı için tahmin hakkını kullandın.`,
+            };
+          });
+        }
+      }
+    }
+  }, [roomOption, roomCode, userId, isHost, isGameOver, currentStageIndex, pickNextSong]);
+
+
+  // Yeni oyun başlatma
   const startNewGame = useCallback(async (params: CreateGameSessionRequest) => {
     webAudioService.stopCurrentAudio();
     setIsPlaying(false);
@@ -91,110 +283,175 @@ export function useGameRound(options?: UseGameRoundOptions) {
     setIsGameOver(false);
     setIsGuessLocked(false);
     setIsLoadingSong(true);
-    setCurrentStageIndex(0);
     setCurrentAttemptIndex(0);
     setScore(0);
     setLastEarnedPoints(null);
-
-    if (options?.roomCode) {
-      const timeLimit = params.guessTimeLimitMinutes || options?.guessTimeLimitMinutes || 1;
-      setGuessTimeLimitMinutes(timeLimit);
-      setRoundCountdownSeconds(timeLimit * 60);
-    } else {
-      setGuessTimeLimitMinutes(undefined);
-      setRoundCountdownSeconds(undefined);
-    }
-
-    setSelectedCustomArtist(params.artist || null);
 
     const chosenRegion = params.region === 'global' ? 'global' : 'tr';
     setCurrentRegion(chosenRegion);
 
     usedSongIdsRef.current.clear();
-    const mode = params.gameMode || 'short';
-    setGameMode(mode);
-
-    let activeStages: GameStage[] = STAGES;
-    if (mode === 'long') {
-      const count = params.songCount && params.songCount > 0 ? params.songCount : 10;
-      activeStages = Array.from({ length: count }, (_, i) => ({
-        stage: i + 1,
-        name: `Şarkı ${i + 1}`,
-        duration: 0.5,
-        skipAdd: '+1.5s',
-        widthPercent: `${Math.round(100 / count)}%`,
-      }));
-    }
-    setGameStages(activeStages);
 
     try {
       let roomObj: Room | null = null;
-      if (options?.roomCode) {
-        roomObj = await roomService.getRoomByCode(options.roomCode);
+      if (roomCode) {
+        roomObj = await roomService.getRoomByCode(roomCode);
       }
 
-      // Oda özel bir YouTube çalma listesi (tokensiz Invidious) ile kurulmuşsa onu yükle
+      const mode = roomObj?.settings?.gameMode || params.gameMode || 'short';
+      setGameMode(mode);
+
+      const targetSongCount = mode === 'long' ? (roomObj?.settings?.songCount || params.songCount || 10) : 3;
+      let activeStages: GameStage[] = STAGES;
+      if (mode === 'long') {
+        activeStages = Array.from({ length: targetSongCount }, (_, i) => ({
+          stage: i + 1,
+          name: `Şarkı ${i + 1}`,
+          duration: 0.5,
+          skipAdd: '+1.5s',
+          widthPercent: `${Math.round(100 / targetSongCount)}%`,
+        }));
+      }
+      setGameStages(activeStages);
+
+      if (roomCode) {
+        const timeLimit = params.guessTimeLimitMinutes || guessTimeLimitMinutesOption || roomObj?.guessTimeLimitMinutes || 1;
+        setGuessTimeLimitMinutes(timeLimit);
+        const remaining = roomService.getRemainingRoundSeconds(roomObj);
+        setRoundCountdownSeconds(remaining > 0 ? remaining : timeLimit * 60);
+      } else {
+        setGuessTimeLimitMinutes(undefined);
+        setRoundCountdownSeconds(undefined);
+      }
+
+      setSelectedCustomArtist(params.artist || null);
+
+      if (roomObj?.currentRound && roomObj.currentRound > 0) {
+        setCurrentStageIndex(Math.max(0, roomObj.currentRound - 1));
+      } else {
+        setCurrentStageIndex(0);
+      }
+
+      // 1. Sabit listemizin içeriği mutlaka yüklensin (Şarkı tahmini listesinde sabit liste her zaman bulunur)
+      await songService.initializeGamePlaylists(chosenRegion);
+
+      // 2. Özel playlist eklendiyse bu listeyi çek, arama havuzuna dahil et ve aktif çalma listesi yap
       const customPlaylistId = roomObj?.settings?.playlistId;
       if (customPlaylistId) {
         console.log(`🎶 [GameRound] Oda özel çalma listesi yükleniyor: ${customPlaylistId}`);
-        const customSongs = await youtubeService.getPlaylistSongs(customPlaylistId, {
-          limit: 50,
-          region: chosenRegion,
-        });
+        try {
+          const customSongs = await youtubeService.getPlaylistSongs(customPlaylistId, {
+            limit: 100,
+            region: chosenRegion,
+          });
 
-        if (customSongs.length > 0) {
-          songService.stagePlaylists[0] = customSongs;
-          songService.stagePlaylists[1] = customSongs;
-          songService.stagePlaylists[2] = customSongs;
-          songService.combinedPool = customSongs;
-          youtubeService.registerKnownSongs(customSongs);
-        } else {
-          await songService.initializeGamePlaylists(chosenRegion);
+          if (customSongs.length > 0) {
+            customPlaylistSongsRef.current = customSongs;
+            youtubeService.registerKnownSongs(customSongs);
+            // Şarkı tahmini listesinde yine sabit listemizin içeriği de olsun. Özel liste eklenirse bu liste içerisindeki de dahil edilsin.
+            songService.combinedPool = [...customSongs, ...songService.combinedPool];
+            const uniqueMap = new Map<string | number, Song>();
+            for (const s of songService.combinedPool) {
+              if (!uniqueMap.has(s.id)) uniqueMap.set(s.id, s);
+            }
+            songService.combinedPool = Array.from(uniqueMap.values());
+          } else {
+            customPlaylistSongsRef.current = [];
+          }
+        } catch (err) {
+          console.warn('⚠️ [GameRound] Özel playlist yüklenemedi:', err);
+          customPlaylistSongsRef.current = [];
         }
       } else {
-        // 1. Başla'ya basılınca BÜTÜN playlistler çekilir ve birleştirilir
-        await songService.initializeGamePlaylists(chosenRegion);
+        customPlaylistSongsRef.current = [];
       }
 
-      // 2. Mod kontrolü: 'long' modunda bütün listelerin birleştiği havuzdan random seçilir
+      // 3. İlk şarkıyı seç
       let initialSong: Song | null = null;
       if (roomObj?.currentSong && !youtubePlayerService.isVideoUnplayable(roomObj.currentSong.youtubeId)) {
         initialSong = roomObj.currentSong;
       }
 
+      const sessionUser = authService.getSession().user;
+      const effectiveUserId = userId || sessionUser?.id;
+
+      const amIHost = Boolean(
+        !roomCode ||
+        isHostOption ||
+        (roomObj && effectiveUserId && (
+          String(roomObj.hostId) === String(effectiveUserId) ||
+          roomObj.participants?.some((p) => String(p.user.id) === String(effectiveUserId) && p.isHost)
+        )) ||
+        (roomOption && effectiveUserId && (
+          String(roomOption.hostId) === String(effectiveUserId) ||
+          roomOption.participants?.some((p) => String(p.user.id) === String(effectiveUserId) && p.isHost)
+        ))
+      );
+
+      // SADECE oda sahibi veya tek kişilik mod şarkı belirleyip setCurrentSong çağırabilir!
       if (!initialSong) {
-        if (mode === 'long') {
-          initialSong = await songService.getRandomSongFromCombinedPool(chosenRegion, []);
-        } else {
-          initialSong = await songService.getRandomSongForStage(chosenRegion, 0);
+        if (!roomCode || amIHost) {
+          initialSong = await pickNextSong(0, undefined, mode);
         }
-        if (options?.roomCode) {
-          // Odaya ortak şarkıyı bildir, herkes aynı şarkıyı dinlesin!
-          await roomService.setCurrentSong(options.roomCode, initialSong, 1);
+      }
+
+      if (roomCode && amIHost && initialSong) {
+        currentSongRef.current = initialSong;
+        const updated = await roomService.setCurrentSong(roomCode, initialSong, 1);
+        if (updated) {
+          const rem = roomService.getRemainingRoundSeconds(updated);
+          const limit = params.guessTimeLimitMinutes || guessTimeLimitMinutesOption || updated.guessTimeLimitMinutes || 1;
+          setRoundCountdownSeconds(rem > 0 ? rem : limit * 60);
         }
       }
 
       if (initialSong) {
         usedSongIdsRef.current.add(initialSong.id);
         if (initialSong.youtubeId) usedSongIdsRef.current.add(initialSong.youtubeId);
+        currentSongRef.current = initialSong;
+        setSongsPool([initialSong]);
+        setCurrentSong(initialSong);
+        consecutiveErrorCountRef.current = 0;
+        setIsLoadingSong(false);
+      } else {
+        setIsLoadingSong(true);
       }
 
-      setSongsPool([initialSong]);
-      setCurrentSong(initialSong);
+      if (roomObj && userId) {
+        const participant = roomObj.participants.find((p) => String(p.user.id) === String(userId));
+        if (participant) {
+          if (participant.score !== undefined && participant.score > 0) {
+            setScore(participant.score);
+          }
+          if (participant.lastPointsEarned !== null && participant.lastPointsEarned !== undefined) {
+            setIsGuessLocked(true);
+            setLastEarnedPoints(participant.lastPointsEarned);
+            setFeedback({
+              isSuccess: participant.lastPointsEarned > 0,
+              message: participant.lastPointsEarned > 0
+                ? (initialSong ? `Tebrikler! ${participant.lastPointsEarned} puan kazandın! Doğru parça: ${initialSong.artist} - ${initialSong.title}` : `Tebrikler! ${participant.lastPointsEarned} puan kazandın!`)
+                : (initialSong ? `Bu şarkı için tahmin hakkını kullandın. Doğru parça: ${initialSong.artist} - ${initialSong.title}` : `Bu şarkı için tahmin hakkını kullandın.`),
+            });
+          }
+        }
+      }
 
       await gameService.createSession(params);
-      // Embed isteklerinin tamamlanmasını dinle (Kullanıcı ancak embed hazır olunca play'e basabilir)
-      await webAudioService.preloadSong(initialSong);
+      setIsLoadingSong(false);
+      if (initialSong) {
+        void webAudioService.preloadSong(initialSong);
+      }
     } catch (err) {
       console.error('⚠️ [GameRound] Oyun başlatma hatası:', err);
     } finally {
       setIsLoadingSong(false);
     }
-  }, [options]);
+  }, [roomCode, guessTimeLimitMinutesOption, userId, isHost, pickNextSong]);
+
 
   // Ses klibi çalma / durdurma (anlık saniye imleci takipli)
   const togglePlay = useCallback(() => {
-    if (!currentSong || isLoadingSong || !webAudioService.isSongEmbedReady(currentSong)) return;
+    if (!currentSong) return;
 
     // Şarkı çözülmüş veya pes edilmiş durumdayken duraklat / kaldığı yerden devam ettir (baştan başlamaz)
     if (isGuessLocked) {
@@ -270,6 +527,17 @@ export function useGameRound(options?: UseGameRoundOptions) {
 
       setIsGuessLocked(true);
       setLastEarnedPoints(0);
+      onScoreUpdateRef.current?.(0, activeDuration, score);
+
+      if (roomCode && userId) {
+        roomService.updateParticipantScore(
+          roomCode,
+          userId,
+          0,
+          activeDuration
+        );
+      }
+
       setFeedback({
         isSuccess: false,
         message: isTimeout
@@ -284,68 +552,128 @@ export function useGameRound(options?: UseGameRoundOptions) {
       setPlaybackSeconds(0);
       setPlaybackRatio(0);
     },
-    [isGuessLocked, currentSong, clearResetTimer]
+    [isGuessLocked, currentSong, clearResetTimer, activeDuration, roomCode, userId, score]
   );
 
-  // Şarkıyı bilme süresi geri sayımı (YALNIZCA ODA İÇERİSİNDEYSE çalışır)
+  // Şarkıyı bilme süresi yetkili geri sayımı (YALNIZCA ODA İÇERİSİNDEYSE çalışır)
   useEffect(() => {
-    if (!options?.roomCode || isGuessLocked || isGameOver || isLoadingSong) {
+    if (!roomCode || isGameOver) {
       return;
     }
 
-    const intervalId = window.setInterval(() => {
-      setRoundCountdownSeconds((prev) => {
-        if (prev === undefined) return undefined;
-        if (prev <= 1) {
-          clearInterval(intervalId);
+    const checkTimer = () => {
+      // Şarkı henüz hazır değilse, çalacak şarkı yoksa veya tahmin zaten kilitlenmişse süre bitimi tetikleme!
+      if (!currentSong || isLoadingSong || isGuessLocked) {
+        return;
+      }
+
+      const activeRoom = roomOption;
+      if (activeRoom && activeRoom.currentRoundStartedAt && activeRoom.status === 'in_game') {
+        const remaining = roomService.getRemainingRoundSeconds(activeRoom);
+        setRoundCountdownSeconds(remaining);
+        if (remaining <= 0) {
           handleGiveUp(true);
-          return 0;
         }
-        return prev - 1;
-      });
-    }, 1000);
+      } else {
+        setRoundCountdownSeconds((prev) => {
+          if (prev === undefined) return undefined;
+          if (prev <= 1) {
+            handleGiveUp(true);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }
+    };
+
+    const intervalId = window.setInterval(checkTimer, 1000);
 
     return () => clearInterval(intervalId);
-  }, [options?.roomCode, isGuessLocked, isGameOver, isLoadingSong, handleGiveUp]);
+  }, [roomCode, isGameOver, isGuessLocked, isLoadingSong, currentSong, handleGiveUp, roomOption]);
 
   // Oda modunda senkronize ortak şarkıyı WebSocket üzerinden dinle
   useEffect(() => {
-    if (!options?.roomCode) return;
+    if (!roomCode) return;
 
-    const unsubscribe = roomService.onSongChanged(options.roomCode, async (syncSong, round) => {
-      if (!currentSong || currentSong.id !== syncSong.id || currentSong.youtubeId !== syncSong.youtubeId) {
-        clearResetTimer();
-        webAudioService.stopCurrentAudio();
-        setIsPlaying(false);
-        setPlaybackSeconds(0);
-        setPlaybackRatio(0);
-        setIsGuessLocked(false);
-        setFeedback(null);
-        setLastEarnedPoints(null);
-        setCurrentSong(syncSong);
-        setCurrentStageIndex(Math.max(0, round - 1));
-        setCurrentAttemptIndex(0);
-        setIsLoadingSong(true);
-        await webAudioService.preloadSong(syncSong);
-        setIsLoadingSong(false);
+    const unsubscribe = roomService.onSongChanged(roomCode, async (syncSong, round, endsAt) => {
+      const current = currentSongRef.current;
+      if (current && (current.id === syncSong.id || (current.youtubeId && current.youtubeId === syncSong.youtubeId))) {
+        // Zaten bu şarkı ayarlanmış, mükerrer istek atmayı engelle
+        return;
       }
+
+      clearResetTimer();
+      webAudioService.stopCurrentAudio();
+      setIsPlaying(false);
+      setPlaybackSeconds(0);
+      setPlaybackRatio(0);
+      setIsGuessLocked(false);
+      setFeedback(null);
+      setLastEarnedPoints(null);
+      consecutiveErrorCountRef.current = 0;
+      setCurrentSong(syncSong);
+      currentSongRef.current = syncSong;
+      setCurrentStageIndex(Math.max(0, round - 1));
+      setCurrentAttemptIndex(0);
+
+      // Her şarkı değiştiğinde süre odayı oluştururken seçilen dakikaya göre yeniden başlar
+      const limitSec = (guessTimeLimitMinutes || guessTimeLimitMinutesOption || 1) * 60;
+      if (endsAt) {
+        const endsAtMs = parseServerDateMs(endsAt);
+        if (endsAtMs !== null) {
+          const rem = Math.ceil((endsAtMs - Date.now()) / 1000);
+          setRoundCountdownSeconds(rem > 0 ? rem : limitSec);
+        } else {
+          setRoundCountdownSeconds(limitSec);
+        }
+      } else {
+        setRoundCountdownSeconds(limitSec);
+      }
+
+      setIsLoadingSong(false);
+      void webAudioService.preloadSong(syncSong);
     });
 
     return () => {
       unsubscribe();
     };
-  }, [options?.roomCode, currentSong, clearResetTimer]);
+  }, [roomCode, clearResetTimer, guessTimeLimitMinutes, guessTimeLimitMinutesOption]);
 
   // YouTube oynatma hatası (101/150 embed engeli veya 100 video silinmesi) durumunda
   // sessizlikte kalmamak için otomatik olarak sıradaki oynatılabilir şarkıya geçer
   useEffect(() => {
     const unsubscribe = webAudioService.onPlaybackError(async (failedVideoId, errorCode) => {
-      if (!currentSong || isGameOver || isSongRevealed) return;
-      if (failedVideoId && currentSong.youtubeId && currentSong.youtubeId !== failedVideoId) return;
+      // 1. Zaten bir hata işleniyorsa, oyun bittiyse veya şarkı çözüldüyse tetikleme
+      if (isHandlingErrorRef.current || isGameOver || isSongRevealed) return;
+
+      // 2. Bir odadaysak ve oda sahibi DEĞİLSEK asla tüm odanın şarkısını değiştirmeye kalkışma
+      if (roomCode && !isHost) {
+        console.warn(`[GameRound] Katılımcı oynatma hatası aldı (Video: ${failedVideoId}, Kod: ${errorCode}). Şarkı değişimi oda sahibine aittir.`);
+        return;
+      }
+
+      // 3. Mevcut şarkı ile eşleşmiyorsa tetikleme
+      const current = currentSongRef.current;
+      if (!current) return;
+      if (failedVideoId && current.youtubeId && current.youtubeId !== failedVideoId) return;
+
+      // 4. Circuit Breaker: Üst üste 3 kez hata alındıysa döngüyü kır!
+      if (consecutiveErrorCountRef.current >= 3) {
+        console.warn(`🚨 [GameRound] Üst üste ${consecutiveErrorCountRef.current} kez video hatası alındı. Otomatik geçiş durduruldu.`);
+        setFeedback({
+          isSuccess: false,
+          message: 'Bu parça YouTube üzerinden oynatılamadı. Lütfen "Şarkıyı Geç" butonu ile devam edin.',
+        });
+        setIsLoadingSong(false);
+        return;
+      }
+
+      isHandlingErrorRef.current = true;
+      consecutiveErrorCountRef.current += 1;
 
       console.warn(
-        `🚨 [GameRound] "${currentSong.artist} - ${currentSong.title}" (ID: ${failedVideoId}) telif/embed engeline takıldı (Hata: ${errorCode}). ` +
-        `Otomatik olarak yeni bir şarkı seçiliyor...`
+        `🚨 [GameRound] "${current.artist} - ${current.title}" (ID: ${failedVideoId}) telif/embed engeline takıldı (Hata: ${errorCode}, Deneme: ${consecutiveErrorCountRef.current}). ` +
+        `Alternatif şarkı aranıyor...`
       );
 
       clearResetTimer();
@@ -355,45 +683,41 @@ export function useGameRound(options?: UseGameRoundOptions) {
       setPlaybackRatio(0);
       setIsLoadingSong(true);
 
-      try {
-        let replacementSong: Song | null = null;
-        if (gameMode === 'long') {
-          replacementSong = await songService.getRandomSongFromCombinedPool(
-            currentRegion,
-            Array.from(usedSongIdsRef.current)
-          );
-        } else {
-          replacementSong = await songService.getRandomSongForStage(
-            currentRegion,
-            currentStageIndex,
-            currentSong.youtubeId || currentSong.id
-          );
-        }
+      // Oynatıcı olaylarının oturması için kısa bekleme (rapid loop önleme)
+      await new Promise((r) => setTimeout(r, 600));
 
-        if (replacementSong && (replacementSong.youtubeId !== currentSong.youtubeId || replacementSong.title !== currentSong.title)) {
+      try {
+        const replacementSong = await pickNextSong(
+          currentStageIndex,
+          current.youtubeId || current.id
+        );
+
+        if (replacementSong && (replacementSong.youtubeId !== current.youtubeId || replacementSong.title !== current.title)) {
           console.log(`✨ [GameRound] Yeni parça yüklendi: "${replacementSong.artist} - ${replacementSong.title}"`);
           usedSongIdsRef.current.add(replacementSong.id);
           if (replacementSong.youtubeId) usedSongIdsRef.current.add(replacementSong.youtubeId);
+          currentSongRef.current = replacementSong;
           setCurrentSong(replacementSong);
           setSongsPool([replacementSong]);
 
-          if (options?.roomCode) {
-            roomService.setCurrentSong(options.roomCode, replacementSong, currentStageIndex + 1);
+          if (roomCode) {
+            await roomService.setCurrentSong(roomCode, replacementSong, currentStageIndex + 1);
+          } else {
+            await webAudioService.preloadSong(replacementSong);
           }
-
-          await webAudioService.preloadSong(replacementSong);
         }
       } catch (err) {
         console.error('Alternatif şarkı yüklenirken hata oluştu:', err);
       } finally {
         setIsLoadingSong(false);
+        isHandlingErrorRef.current = false;
       }
     });
 
     return () => {
       unsubscribe();
     };
-  }, [currentSong, isGameOver, isSongRevealed, currentStageIndex, currentRegion, options?.roomCode, clearResetTimer]);
+  }, [isGameOver, isSongRevealed, currentStageIndex, pickNextSong, roomCode, isHost, clearResetTimer]);
 
   // Sıradaki şarkıya geçme fonksiyonu (Kullanıcı dilediği an butona basarak geçer)
   const goToNextSong = useCallback(async () => {
@@ -404,8 +728,9 @@ export function useGameRound(options?: UseGameRoundOptions) {
     setPlaybackRatio(0);
     setIsGuessLocked(false);
     setLastEarnedPoints(null);
-    if (options?.roomCode && guessTimeLimitMinutes) {
-      setRoundCountdownSeconds(guessTimeLimitMinutes * 60);
+    const limitMinutes = guessTimeLimitMinutes || guessTimeLimitMinutesOption || 1;
+    if (roomCode) {
+      setRoundCountdownSeconds(limitMinutes * 60);
     } else {
       setRoundCountdownSeconds(undefined);
     }
@@ -418,22 +743,19 @@ export function useGameRound(options?: UseGameRoundOptions) {
 
       setIsLoadingSong(true);
       try {
-        let nextSong: Song | null = null;
-        if (gameMode === 'long') {
-          nextSong = await songService.getRandomSongFromCombinedPool(
-            currentRegion,
-            Array.from(usedSongIdsRef.current)
-          );
-        } else {
-          nextSong = await songService.getRandomSongForStage(currentRegion, nextStage, currentSong?.id);
-        }
+        const nextSong = await pickNextSong(nextStage, currentSong?.id);
 
         if (nextSong) {
           usedSongIdsRef.current.add(nextSong.id);
           if (nextSong.youtubeId) usedSongIdsRef.current.add(nextSong.youtubeId);
           setCurrentSong(nextSong);
-          if (options?.roomCode) {
-            roomService.setCurrentSong(options.roomCode, nextSong, nextStage + 1);
+          if (roomCode) {
+            // Şarkı değiştiğinde backend tarafına son saniye tekrardan setlenir
+            const updated = await roomService.setCurrentSong(roomCode, nextSong, nextStage + 1);
+            if (updated) {
+              const rem = roomService.getRemainingRoundSeconds(updated);
+              setRoundCountdownSeconds(rem > 0 ? rem : limitMinutes * 60);
+            }
           }
           await webAudioService.preloadSong(nextSong);
         }
@@ -448,8 +770,11 @@ export function useGameRound(options?: UseGameRoundOptions) {
         isSuccess: true,
         message: `Mükemmel! ${gameStages.length} şarkıyı da başarıyla tamamladın!`,
       });
+      if (roomCode) {
+        await roomService.changeRoomStatus(roomCode, 'finished');
+      }
     }
-  }, [clearResetTimer, currentRegion, currentStageIndex, currentSong?.id, gameMode, gameStages.length, guessTimeLimitMinutes, options?.roomCode]);
+  }, [clearResetTimer, currentStageIndex, currentSong?.id, gameStages.length, guessTimeLimitMinutes, guessTimeLimitMinutesOption, pickNextSong, roomCode]);
 
   // Yanlış tahmin veya 'Geç' basıldığında denemeyi ilerletme
   const advanceAttempt = useCallback(() => {
@@ -487,8 +812,8 @@ export function useGameRound(options?: UseGameRoundOptions) {
         attemptIndex: currentAttemptIndex,
         duration: activeDuration,
         guessedTitle: chosenSong.title,
-        userId: options?.userId || undefined,
-        roomCode: options?.roomCode || undefined,
+        userId: userId || undefined,
+        roomCode: roomCode || undefined,
       };
 
       console.log('🎯 [submitGuess]', {
@@ -510,19 +835,20 @@ export function useGameRound(options?: UseGameRoundOptions) {
         setLastEarnedPoints(earned);
         setScore((prev) => {
           const nextScore = prev + earned;
-          options?.onScoreUpdate?.(earned, activeDuration, nextScore);
+          onScoreUpdateRef.current?.(earned, activeDuration, nextScore);
           return nextScore;
         });
 
         // Oda aktifse oda katılımcısının skorunu da güncelle
-        if (options?.roomCode && options?.userId) {
+        if (roomCode && userId) {
           roomService.updateParticipantScore(
-            options.roomCode,
-            options.userId,
+            roomCode,
+            userId,
             earned,
             activeDuration
           );
         }
+
 
         setFeedback({
           isSuccess: true,
@@ -555,7 +881,8 @@ export function useGameRound(options?: UseGameRoundOptions) {
       currentAttemptIndex,
       activeDuration,
       currentStageIndex,
-      options,
+      roomCode,
+      userId,
       advanceAttempt,
       clearResetTimer,
     ]

@@ -8,25 +8,26 @@ interface LoginPageProps {
   onContinueAsGuest: () => void;
 }
 
+type AuthMode = "login" | "register" | "forgot-password";
+
 export const LoginPage: React.FC<LoginPageProps> = ({
   pendingInviteRoomCode,
   onSuccessLogin,
   onContinueAsGuest,
 }) => {
-  const { login, register, continueAsGuest, isLoading } = useAuth();
-  const [isRegisterMode, setIsRegisterMode] = useState(false);
+  const { login, register, resetPassword, continueAsGuest, isLoading } = useAuth();
+  const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    if (isRegisterMode) {
-      return handleSignUp(e);
-    }
 
     if (!email.trim()) {
       setError("Lütfen e-posta adresinizi girin.");
@@ -35,6 +36,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
     try {
       setError(null);
+      setSuccessMessage(null);
       await login({ email: email.trim(), password });
       onSuccessLogin();
     } catch (err: any) {
@@ -42,15 +44,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     }
   };
 
-  const handleSignUp = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-
-    // Giriş ekranındayken tıklandıysa üyelik formuna geç
-    if (!isRegisterMode) {
-      setIsRegisterMode(true);
-      setError(null);
-      return;
-    }
+  const handleRegisterSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
 
     if (!firstName.trim()) {
       setError("Lütfen adınızı girin.");
@@ -74,6 +69,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
     try {
       setError(null);
+      setSuccessMessage(null);
       await register({
         email: email.trim(),
         password,
@@ -86,10 +82,45 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     }
   };
 
+  const handleResetPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!email.trim()) {
+      setError("Lütfen e-posta adresinizi girin.");
+      return;
+    }
+
+    if (!newPassword || newPassword.length < 4) {
+      setError("Yeni şifreniz en az 4 karakterden oluşmalıdır.");
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setError("Girdiğiniz yeni şifreler birbiriyle eşleşmiyor.");
+      return;
+    }
+
+    try {
+      setError(null);
+      const msg = await resetPassword({
+        email: email.trim(),
+        newPassword,
+      });
+      setSuccessMessage(msg || "Şifreniz başarıyla güncellendi. Giriş yapabilirsiniz.");
+      setPassword(newPassword);
+      setNewPassword("");
+      setConfirmPassword("");
+      setAuthMode("login");
+    } catch (err: any) {
+      setError(err?.message || "Şifre sıfırlama sırasında bir hata oluştu.");
+    }
+  };
+
   const handleQuickDemoLogin = async (demoEmail: string) => {
     setEmail(demoEmail);
     try {
       setError(null);
+      setSuccessMessage(null);
       await login({ email: demoEmail });
       onSuccessLogin();
     } catch (err: any) {
@@ -129,19 +160,20 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           <button
             type="button"
             onClick={() => {
-              setIsRegisterMode(false);
+              setAuthMode("login");
               setError(null);
+              setSuccessMessage(null);
             }}
             style={{
               flex: 1,
               padding: "0.5rem",
               fontSize: "0.875rem",
-              fontWeight: !isRegisterMode ? 700 : 500,
-              color: !isRegisterMode ? "#ffffff" : "#9ca3af",
-              backgroundColor: !isRegisterMode
+              fontWeight: authMode === "login" ? 700 : 500,
+              color: authMode === "login" ? "#ffffff" : "#9ca3af",
+              backgroundColor: authMode === "login"
                 ? "rgba(99, 102, 241, 0.4)"
                 : "transparent",
-              border: !isRegisterMode
+              border: authMode === "login"
                 ? "1px solid rgba(129, 140, 248, 0.4)"
                 : "1px solid transparent",
               borderRadius: "var(--radius-sm)",
@@ -154,19 +186,20 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           <button
             type="button"
             onClick={() => {
-              setIsRegisterMode(true);
+              setAuthMode("register");
               setError(null);
+              setSuccessMessage(null);
             }}
             style={{
               flex: 1,
               padding: "0.5rem",
               fontSize: "0.875rem",
-              fontWeight: isRegisterMode ? 700 : 500,
-              color: isRegisterMode ? "#ffffff" : "#9ca3af",
-              backgroundColor: isRegisterMode
+              fontWeight: authMode === "register" ? 700 : 500,
+              color: authMode === "register" ? "#ffffff" : "#9ca3af",
+              backgroundColor: authMode === "register"
                 ? "rgba(99, 102, 241, 0.4)"
                 : "transparent",
-              border: isRegisterMode
+              border: authMode === "register"
                 ? "1px solid rgba(129, 140, 248, 0.4)"
                 : "1px solid transparent",
               borderRadius: "var(--radius-sm)",
@@ -180,9 +213,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
         {/* Başlık */}
         <div style={{ textAlign: "center", marginBottom: "1.5rem" }}>
-          <div style={{ fontSize: "2.5rem", marginBottom: "0.5rem" }}>🎧</div>
+          <div style={{ fontSize: "2.5rem", marginBottom: "0.5rem" }}>
+            {authMode === "forgot-password" ? "🔑" : "🎧"}
+          </div>
           <h2 style={{ fontSize: "1.5rem", fontWeight: 800, color: "#f9fafb" }}>
-            {isRegisterMode
+            {authMode === "forgot-password"
+              ? "Şifremi Unuttum"
+              : authMode === "register"
               ? "Yeni Hesap Oluştur"
               : pendingInviteRoomCode
               ? "Odaya Katılmak İçin Giriş Yap"
@@ -195,7 +232,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               marginTop: "0.25rem",
             }}
           >
-            {isRegisterMode ? (
+            {authMode === "forgot-password" ? (
+              "Hesabınıza ait e-posta adresinizi ve yeni şifrenizi girerek güncelleyin."
+            ) : authMode === "register" ? (
               "Şarkı tahmin yarışmasına katılmak ve odalar kurmak için kaydolun."
             ) : pendingInviteRoomCode ? (
               <span style={{ color: "#818cf8", fontWeight: 600 }}>
@@ -206,6 +245,24 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             )}
           </p>
         </div>
+
+        {/* Başarı Mesajı */}
+        {successMessage && (
+          <div
+            style={{
+              padding: "0.6rem 0.85rem",
+              backgroundColor: "rgba(16, 185, 129, 0.2)",
+              border: "1px solid rgba(16, 185, 129, 0.4)",
+              borderRadius: "var(--radius-sm)",
+              color: "#34d399",
+              fontSize: "0.8125rem",
+              marginBottom: "1rem",
+              lineHeight: 1.4,
+            }}
+          >
+            ✅ {successMessage}
+          </div>
+        )}
 
         {/* Hata Mesajı */}
         {error && (
@@ -225,12 +282,96 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           </div>
         )}
 
-        {/* Form */}
-        <form
-          onSubmit={handleSubmit}
-          style={{ display: "flex", flexDirection: "column", gap: "1rem" }}
-        >
-          {isRegisterMode && (
+        {/* GİRİŞ MODU */}
+        {authMode === "login" && (
+          <form
+            onSubmit={handleLoginSubmit}
+            style={{ display: "flex", flexDirection: "column", gap: "1rem" }}
+          >
+            <Input
+              label="E-posta Adresi"
+              type="email"
+              placeholder="ornek@mail.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              disabled={isLoading}
+              required
+            />
+
+            <div>
+              <Input
+                label="Şifre"
+                type="password"
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                disabled={isLoading}
+                required
+              />
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  marginTop: "0.35rem",
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthMode("forgot-password");
+                    setError(null);
+                    setSuccessMessage(null);
+                  }}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "#818cf8",
+                    fontSize: "0.8125rem",
+                    fontWeight: 500,
+                    cursor: "pointer",
+                    padding: 0,
+                    textDecoration: "underline",
+                    textUnderlineOffset: "3px",
+                  }}
+                >
+                  Şifremi unuttum?
+                </button>
+              </div>
+            </div>
+
+            <Button
+              type="submit"
+              variant="primary"
+              size="md"
+              isLoading={isLoading}
+              style={{ width: "100%", marginTop: "0.5rem" }}
+            >
+              Giriş Yap & Devam Et
+            </Button>
+
+            <Button
+              type="button"
+              variant="secondary"
+              size="md"
+              isLoading={isLoading}
+              style={{ width: "100%", marginTop: "0.25rem" }}
+              onClick={() => {
+                setAuthMode("register");
+                setError(null);
+                setSuccessMessage(null);
+              }}
+            >
+              Üye ol
+            </Button>
+          </form>
+        )}
+
+        {/* KAYIT MODU */}
+        {authMode === "register" && (
+          <form
+            onSubmit={handleRegisterSubmit}
+            style={{ display: "flex", flexDirection: "column", gap: "1rem" }}
+          >
             <div
               style={{
                 display: "grid",
@@ -257,82 +398,119 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 required
               />
             </div>
-          )}
 
-          <Input
-            label="E-posta Adresi"
-            type="email"
-            placeholder="ornek@mail.com"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            disabled={isLoading}
-            required
-          />
+            <Input
+              label="E-posta Adresi"
+              type="email"
+              placeholder="ornek@mail.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              disabled={isLoading}
+              required
+            />
 
-          <Input
-            label="Şifre"
-            type="password"
-            placeholder="••••••••"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            disabled={isLoading}
-            required
-          />
+            <Input
+              label="Şifre"
+              type="password"
+              placeholder="••••••••"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              disabled={isLoading}
+              required
+            />
 
-          {!isRegisterMode ? (
-            <>
-              <Button
-                type="submit"
-                variant="primary"
-                size="md"
-                isLoading={isLoading}
-                style={{ width: "100%", marginTop: "0.5rem" }}
-              >
-                Giriş Yap & Devam Et
-              </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              size="md"
+              isLoading={isLoading}
+              style={{ width: "100%", marginTop: "0.5rem" }}
+            >
+              Üye Ol & Devam Et
+            </Button>
 
-              <Button
-                type="button"
-                variant="secondary"
-                size="md"
-                isLoading={isLoading}
-                style={{ width: "100%", marginTop: "0.5rem" }}
-                onClick={handleSignUp}
-              >
-                Üye ol
-              </Button>
-            </>
-          ) : (
-            <>
-              <Button
-                type="submit"
-                variant="primary"
-                size="md"
-                isLoading={isLoading}
-                style={{ width: "100%", marginTop: "0.5rem" }}
-              >
-                Üye Ol & Devam Et
-              </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              size="md"
+              isLoading={isLoading}
+              style={{ width: "100%", marginTop: "0.25rem" }}
+              onClick={() => {
+                setAuthMode("login");
+                setError(null);
+                setSuccessMessage(null);
+              }}
+            >
+              Zaten hesabın var mı? Giriş Yap
+            </Button>
+          </form>
+        )}
 
-              <Button
-                type="button"
-                variant="secondary"
-                size="md"
-                isLoading={isLoading}
-                style={{ width: "100%", marginTop: "0.5rem" }}
-                onClick={() => {
-                  setIsRegisterMode(false);
-                  setError(null);
-                }}
-              >
-                Zaten hesabın var mı? Giriş Yap
-              </Button>
-            </>
-          )}
-        </form>
+        {/* ŞİFREMİ UNUTTUM MODU */}
+        {authMode === "forgot-password" && (
+          <form
+            onSubmit={handleResetPasswordSubmit}
+            style={{ display: "flex", flexDirection: "column", gap: "1rem" }}
+          >
+            <Input
+              label="E-posta Adresi"
+              type="email"
+              placeholder="kayitli@mail.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              disabled={isLoading}
+              required
+            />
+
+            <Input
+              label="Yeni Şifre"
+              type="password"
+              placeholder="••••••••"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              disabled={isLoading}
+              required
+            />
+
+            <Input
+              label="Yeni Şifre (Tekrar)"
+              type="password"
+              placeholder="••••••••"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              disabled={isLoading}
+              required
+            />
+
+            <Button
+              type="submit"
+              variant="primary"
+              size="md"
+              isLoading={isLoading}
+              style={{ width: "100%", marginTop: "0.5rem" }}
+            >
+              Şifremi Sıfırla & Güncelle
+            </Button>
+
+            <Button
+              type="button"
+              variant="secondary"
+              size="md"
+              isLoading={isLoading}
+              style={{ width: "100%", marginTop: "0.25rem" }}
+              onClick={() => {
+                setAuthMode("login");
+                setError(null);
+                setSuccessMessage(null);
+              }}
+            >
+              ← Giriş Ekranına Dön
+            </Button>
+          </form>
+        )}
 
         {/* Hızlı Demo Hesaplar */}
-        {!isRegisterMode && (
+        {authMode === "login" && (
           <div style={{ marginTop: "1.25rem", textAlign: "center" }}>
             <span style={{ fontSize: "0.75rem", color: "#6b7280" }}>
               Hızlı Demo Giriş:

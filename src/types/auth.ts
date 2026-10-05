@@ -18,6 +18,11 @@ export interface RegisterCredentials {
   lastName: string;
 }
 
+export interface ResetPasswordCredentials {
+  email: string;
+  newPassword: string;
+}
+
 export interface AccessToken {
   token: string;
   expiration: string;

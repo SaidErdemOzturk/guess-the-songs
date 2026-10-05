@@ -45,12 +45,14 @@ export const ENDPOINTS = {
     LEADERBOARD: '/api/rooms/leaderboard',
     SET_CURRENT_SONG: '/api/rooms/setcurrentsong',
     GET_CURRENT_SONG: '/api/rooms/currentsong',
+    KICK: '/api/rooms/kick',
   },
 
   // Kimlik Doğrulama ve Kullanıcılar (AuthController & UsersController)
   AUTH: {
     LOGIN: '/api/auth/login',
     REGISTER: '/api/auth/register',
+    RESET_PASSWORD: '/api/auth/reset-password',
   },
   USERS: {
     GET_ALL: '/api/users/getall',

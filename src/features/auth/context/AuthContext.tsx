@@ -1,6 +1,12 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { authService } from '@/services/api/authService';
-import type { AuthSession, LoginCredentials, RegisterCredentials, User } from '@/types/auth';
+import type {
+  AuthSession,
+  LoginCredentials,
+  RegisterCredentials,
+  ResetPasswordCredentials,
+  User,
+} from '@/types/auth';
 
 interface AuthContextType {
   user: User | null;
@@ -10,6 +16,7 @@ interface AuthContextType {
   isLoading: boolean;
   login: (credentials: LoginCredentials) => Promise<void>;
   register: (credentials: RegisterCredentials) => Promise<void>;
+  resetPassword: (credentials: ResetPasswordCredentials) => Promise<string>;
   continueAsGuest: () => void;
   logout: () => void;
 }
@@ -44,6 +51,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const resetPassword = async (credentials: ResetPasswordCredentials): Promise<string> => {
+    setIsLoading(true);
+    try {
+      return await authService.resetPassword(credentials);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const continueAsGuest = () => {
     const guestSession = authService.continueAsGuest();
     setSession(guestSession);
@@ -66,6 +82,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isLoading,
         login,
         register,
+        resetPassword,
         continueAsGuest,
         logout,
       }}

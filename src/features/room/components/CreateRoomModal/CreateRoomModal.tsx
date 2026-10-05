@@ -19,6 +19,8 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
   const { user, token } = useAuth();
   const [roomName, setRoomName] = useState('');
   const [guessTimeLimitMinutes, setGuessTimeLimitMinutes] = useState<number>(1);
+  const [gameMode, setGameMode] = useState<'short' | 'long'>('short');
+  const [songCount, setSongCount] = useState<number>(10);
   const [playlistSource, setPlaylistSource] = useState<'tr' | 'global' | 'custom'>('tr');
   const [customPlaylistUrl, setCustomPlaylistUrl] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -47,6 +49,7 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
     setError(null);
 
     try {
+      const effectiveSongCount = gameMode === 'long' ? Math.max(3, songCount) : 3;
       const room = await roomService.createRoom(
         {
           name: roomName.trim() || `${user.name}'in Odası`,
@@ -56,7 +59,10 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
             genre: 'all',
             era: 'all',
             guessTimeLimitMinutes: Math.max(1, guessTimeLimitMinutes),
+            gameMode,
+            songCount: effectiveSongCount,
             playlistId: customPlaylistId,
+            playlistUrl: playlistSource === 'custom' ? customPlaylistUrl.trim() : undefined,
           },
         },
         user,
@@ -72,6 +78,7 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
   };
 
   const presetMinutes = [1, 2, 3, 5];
+  const presetSongCounts = [5, 10, 15, 20];
 
   return (
     <div
@@ -153,6 +160,120 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
             value={roomName}
             onChange={(e) => setRoomName(e.target.value)}
           />
+
+          {/* Oyun Modu Seçimi */}
+          <div>
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                fontSize: '0.75rem',
+                fontWeight: 600,
+                color: '#d1d5db',
+                marginBottom: '0.5rem',
+              }}
+            >
+              <span>🎯 Oyun Modu</span>
+              <span style={{ color: '#818cf8', fontWeight: 700 }}>
+                {gameMode === 'short' ? '3 Şarkı (Standart)' : `${songCount} Şarkı (Uzun Mod)`}
+              </span>
+            </label>
+
+            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
+              <button
+                type="button"
+                onClick={() => setGameMode('short')}
+                style={{
+                  flex: 1,
+                  padding: '0.55rem 0.5rem',
+                  borderRadius: '0.75rem',
+                  fontSize: '0.75rem',
+                  fontWeight: gameMode === 'short' ? 700 : 500,
+                  backgroundColor: gameMode === 'short' ? 'rgba(99, 102, 241, 0.3)' : 'rgba(31, 41, 55, 0.7)',
+                  border: gameMode === 'short' ? '1px solid #818cf8' : '1px solid rgba(255, 255, 255, 0.1)',
+                  color: gameMode === 'short' ? '#ffffff' : '#9ca3af',
+                  boxShadow: gameMode === 'short' ? '0 0 12px rgba(99, 102, 241, 0.35)' : 'none',
+                  cursor: 'pointer',
+                  transition: 'all 150ms ease',
+                }}
+              >
+                ⚡ Standart (3 Şarkı)
+              </button>
+              <button
+                type="button"
+                onClick={() => setGameMode('long')}
+                style={{
+                  flex: 1,
+                  padding: '0.55rem 0.5rem',
+                  borderRadius: '0.75rem',
+                  fontSize: '0.75rem',
+                  fontWeight: gameMode === 'long' ? 700 : 500,
+                  backgroundColor: gameMode === 'long' ? 'rgba(99, 102, 241, 0.3)' : 'rgba(31, 41, 55, 0.7)',
+                  border: gameMode === 'long' ? '1px solid #818cf8' : '1px solid rgba(255, 255, 255, 0.1)',
+                  color: gameMode === 'long' ? '#ffffff' : '#9ca3af',
+                  boxShadow: gameMode === 'long' ? '0 0 12px rgba(99, 102, 241, 0.35)' : 'none',
+                  cursor: 'pointer',
+                  transition: 'all 150ms ease',
+                }}
+              >
+                🎯 Uzun Mod
+              </button>
+            </div>
+
+            {gameMode === 'long' && (
+              <div
+                style={{
+                  padding: '0.625rem 0.75rem',
+                  backgroundColor: 'rgba(99, 102, 241, 0.1)',
+                  border: '1px solid rgba(99, 102, 241, 0.25)',
+                  borderRadius: '0.75rem',
+                  marginBottom: '0.5rem',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    color: '#e0e7ff',
+                    marginBottom: '0.375rem',
+                  }}
+                >
+                  <span>Şarkı Sayısı:</span>
+                  <span style={{ color: '#a5b4fc', fontWeight: 700 }}>{songCount} Şarkı Sonra Biter</span>
+                </div>
+                <div style={{ display: 'flex', gap: '0.375rem' }}>
+                  {presetSongCounts.map((count) => {
+                    const isSelected = songCount === count;
+                    return (
+                      <button
+                        key={count}
+                        type="button"
+                        onClick={() => setSongCount(count)}
+                        style={{
+                          flex: 1,
+                          padding: '0.35rem 0.25rem',
+                          borderRadius: '0.5rem',
+                          fontSize: '0.75rem',
+                          fontWeight: isSelected ? 700 : 500,
+                          backgroundColor: isSelected ? 'rgba(99, 102, 241, 0.4)' : 'rgba(17, 24, 39, 0.8)',
+                          border: isSelected ? '1px solid #818cf8' : '1px solid rgba(255, 255, 255, 0.1)',
+                          color: isSelected ? '#ffffff' : '#9ca3af',
+                          cursor: 'pointer',
+                          transition: 'all 150ms ease',
+                        }}
+                      >
+                        {count}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
 
           <div>
             <label

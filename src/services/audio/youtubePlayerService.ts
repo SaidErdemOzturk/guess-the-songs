@@ -36,6 +36,9 @@ class YouTubePlayerService {
   private activeOnEndCallback: (() => void) | null = null;
   private unplayableVideoIds: Set<string> = new Set();
   private errorListeners: Set<(videoId: string, errorCode: number) => void> = new Set();
+  private activePreparePromise: Promise<boolean> | null = null;
+  private lastReportedErrorVideoId: string = '';
+  private lastReportedErrorTime: number = 0;
 
   /**
    * YouTube IFrame API scriptini dinamik olarak yükler ve hazır olmasını bekler.
@@ -229,6 +232,15 @@ class YouTubePlayerService {
               this.isPlaying = false;
               this.clearTimers();
 
+              const now = Date.now();
+              if (failedVideoId && this.lastReportedErrorVideoId === failedVideoId && now - this.lastReportedErrorTime < 3000) {
+                return;
+              }
+              if (failedVideoId) {
+                this.lastReportedErrorVideoId = failedVideoId;
+                this.lastReportedErrorTime = now;
+              }
+
               // Dinleyicileri (örn: GameRound otomatik şarkı değiştirici) uyar
               this.errorListeners.forEach((listener) => {
                 try {
@@ -339,12 +351,13 @@ class YouTubePlayerService {
   /**
    * Belirtilen videonun YouTube embed isteklerinin tamamlanıp hazır olmasını (CUED) bekler.
    */
-  public async prepareSong(videoId: string, timeoutMs: number = 8000): Promise<boolean> {
+  public async prepareSong(videoId: string, timeoutMs: number = 3000): Promise<boolean> {
     if (!videoId) return false;
 
     // Eğer bu video zaten cued ve hazır durumdaysa hemen onay ver
-    if (this.cuedVideoId === videoId && this.isEmbedReady) {
-      return true;
+    if (this.cuedVideoId === videoId) {
+      if (this.isEmbedReady) return true;
+      if (this.activePreparePromise) return this.activePreparePromise;
     }
 
     // Önceki bekleyen cued promise varsa temizle
@@ -362,39 +375,45 @@ class YouTubePlayerService {
     this.cuedVideoId = videoId;
     this.currentVideoId = videoId;
 
-    try {
-      const player = await this.ensurePlayer();
+    this.activePreparePromise = (async () => {
+      try {
+        const player = await this.ensurePlayer();
 
-      return await new Promise<boolean>((resolve, reject) => {
-        this.cuedResolve = resolve;
-        this.cuedReject = reject;
+        return await new Promise<boolean>((resolve, reject) => {
+          this.cuedResolve = resolve;
+          this.cuedReject = reject;
 
-        this.cuedTimer = setTimeout(() => {
-          console.warn(`⏳ [YouTubePlayerService] prepareSong timeout (${timeoutMs}ms) for: ${videoId}`);
-          this.cuedTimer = null;
-          this.cuedResolve = null;
-          this.cuedReject = null;
-          this.isEmbedReady = true;
-          resolve(true);
-        }, timeoutMs);
+          this.cuedTimer = setTimeout(() => {
+            console.warn(`⏳ [YouTubePlayerService] prepareSong timeout (${timeoutMs}ms) for: ${videoId}`);
+            this.cuedTimer = null;
+            this.cuedResolve = null;
+            this.cuedReject = null;
+            this.isEmbedReady = true;
+            resolve(true);
+          }, timeoutMs);
 
-        try {
-          player.cueVideoById({
-            videoId,
-            startSeconds: 0,
-          });
-        } catch (err) {
-          if (this.cuedTimer) clearTimeout(this.cuedTimer);
-          this.cuedTimer = null;
-          this.cuedResolve = null;
-          this.cuedReject = null;
-          reject(err);
-        }
-      });
-    } catch (err) {
-      console.warn('⚠️ [YouTubePlayerService] prepareSong başarısız:', err);
-      return false;
-    }
+          try {
+            player.cueVideoById({
+              videoId,
+              startSeconds: 0,
+            });
+          } catch (err) {
+            if (this.cuedTimer) clearTimeout(this.cuedTimer);
+            this.cuedTimer = null;
+            this.cuedResolve = null;
+            this.cuedReject = null;
+            reject(err);
+          }
+        });
+      } catch (err) {
+        console.warn('⚠️ [YouTubePlayerService] prepareSong başarısız:', err);
+        return false;
+      } finally {
+        this.activePreparePromise = null;
+      }
+    })();
+
+    return this.activePreparePromise;
   }
 
   /**

@@ -6,10 +6,41 @@ import styles from './RoomScoreboard.module.css';
 interface RoomScoreboardProps {
   room: Room;
   currentUserId?: string | null;
+  onKickParticipant?: (targetUserId: string) => Promise<void>;
+  isCurrentUserGuessing?: boolean;
+  currentUserEarnedPoints?: number | null;
 }
 
-export const RoomScoreboard: React.FC<RoomScoreboardProps> = ({ room, currentUserId }) => {
+export const RoomScoreboard: React.FC<RoomScoreboardProps> = ({
+  room,
+  currentUserId,
+  onKickParticipant,
+  isCurrentUserGuessing,
+  currentUserEarnedPoints,
+}) => {
   const [copyFeedback, setCopyFeedback] = useState(false);
+  const [kickingId, setKickingId] = useState<string | null>(null);
+  const isHost = room.hostId === currentUserId;
+  const isGameActive = room.status === 'in_game';
+
+  const handleKick = async (targetUserId: string, targetUserName: string) => {
+    if (!isHost || !currentUserId) return;
+    const confirmed = window.confirm(`"${targetUserName}" adlı oyuncuyu oyundan/odadan çıkarmak istediğinize emin misiniz?`);
+    if (!confirmed) return;
+
+    try {
+      setKickingId(targetUserId);
+      if (onKickParticipant) {
+        await onKickParticipant(targetUserId);
+      } else {
+        await roomService.kickParticipant(room.code, currentUserId, targetUserId);
+      }
+    } catch (err: any) {
+      alert(err?.message || 'Oyuncu odadan çıkarılırken bir hata oluştu.');
+    } finally {
+      setKickingId(null);
+    }
+  };
 
   // Katılımcıları skora göre azalan şekilde sırala
   const sortedParticipants = [...room.participants].sort(
@@ -64,6 +95,21 @@ export const RoomScoreboard: React.FC<RoomScoreboardProps> = ({ room, currentUse
       <div className={styles.participantsList}>
         {sortedParticipants.map((p, index) => {
           const isCurrentUser = p.user.id === currentUserId;
+
+          // Katılımcının bu raund tahmin yapıp yapmadığı durumu
+          const isGuessing = isGameActive && (
+            isCurrentUser
+              ? Boolean(isCurrentUserGuessing)
+              : (p.lastPointsEarned === undefined || p.lastPointsEarned === null)
+          );
+
+          // Raund sonu kazanılan puan
+          const earnedPoints = isCurrentUser
+            ? (currentUserEarnedPoints !== undefined && currentUserEarnedPoints !== null ? currentUserEarnedPoints : p.lastPointsEarned)
+            : p.lastPointsEarned;
+
+          const guessDuration = p.lastGuessDuration;
+
           return (
             <div
               key={p.user.id || index}
@@ -84,10 +130,59 @@ export const RoomScoreboard: React.FC<RoomScoreboardProps> = ({ room, currentUse
 
               <div className={styles.playerRight}>
                 <span className={styles.scoreText}>{(p.score || 0).toLocaleString('tr-TR')} p</span>
-                {p.lastPointsEarned !== undefined && p.lastPointsEarned > 0 && (
+
+                {/* Tahmin aşamasındaysa loading spinner, bittiyse kazanılan puan */}
+                {isGameActive && (
+                  <>
+                    {isGuessing ? (
+                      <div className={styles.guessingContainer}>
+                        <div className={styles.guessingSpinner} />
+                        <span className={styles.guessingText}>
+                          {isCurrentUser ? 'Tahmin ediyorsun...' : 'Tahmin ediyor...'}
+                        </span>
+                      </div>
+                    ) : earnedPoints !== undefined && earnedPoints !== null ? (
+                      earnedPoints > 0 ? (
+                        <span className={styles.earnedBadgeSuccess} title={`Bu şarkıda +${earnedPoints} puan kazandı`}>
+                          +{earnedPoints} {guessDuration ? `(${guessDuration}s)` : ''}
+                        </span>
+                      ) : (
+                        <span className={styles.earnedBadgeZero} title="Bu şarkıda puan kazanamadı">
+                          +0 p {guessDuration ? `(${guessDuration}s)` : ''}
+                        </span>
+                      )
+                    ) : null}
+                  </>
+                )}
+
+                {/* Oyun aktif değilse (lobi/sonuç) son puan */}
+                {!isGameActive && p.lastPointsEarned !== undefined && p.lastPointsEarned > 0 && (
                   <span className={styles.lastEarnedBadge}>
                     +{p.lastPointsEarned} ({p.lastGuessDuration}s)
                   </span>
+                )}
+
+                {isHost && !p.isHost && p.user.id !== currentUserId && (
+                  <button
+                    type="button"
+                    title={`${p.user.name} kullanıcısını odadan at`}
+                    disabled={kickingId === p.user.id}
+                    onClick={() => handleKick(p.user.id, p.user.name)}
+                    style={{
+                      backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                      border: '1px solid rgba(239, 68, 68, 0.35)',
+                      borderRadius: 'var(--radius-sm)',
+                      color: '#f87171',
+                      padding: '0.15rem 0.4rem',
+                      fontSize: '0.7rem',
+                      fontWeight: 600,
+                      cursor: kickingId === p.user.id ? 'not-allowed' : 'pointer',
+                      marginTop: '0.2rem',
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    {kickingId === p.user.id ? '...' : '✕ At'}
+                  </button>
                 )}
               </div>
             </div>
