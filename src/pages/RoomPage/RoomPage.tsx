@@ -63,8 +63,15 @@ export const RoomPage: React.FC<RoomPageProps> = ({
             );
           }
         } else {
-          // Aksi takdirde (sayfa yenilendiğinde veya oda zaten kurulmuşken) doğrudan oda bilgileri çekilir
-          targetRoom = await roomService.getRoomByCode(roomCode);
+          // Aksi takdirde yerel depodaki odayı kontrol et, yoksa sunucudan çek
+          const cleanCode = roomCode.toUpperCase().trim();
+          const stored = roomService.getStoredRooms()[cleanCode];
+          if (stored) {
+            targetRoom = stored;
+            roomService.connectWebSocket(cleanCode, user);
+          } else {
+            targetRoom = await roomService.getRoomByCode(roomCode);
+          }
         }
 
         if (!targetRoom) {
@@ -73,7 +80,7 @@ export const RoomPage: React.FC<RoomPageProps> = ({
 
         if (isMounted) {
           setRoom(targetRoom);
-          if (targetRoom.status === "in_game") {
+          if (isInvite && targetRoom.status === "in_game") {
             onStartGame(targetRoom);
           }
         }
@@ -123,13 +130,14 @@ export const RoomPage: React.FC<RoomPageProps> = ({
 
   const handleStartGame = async () => {
     if (room) {
+      const updated: Room = {
+        ...room,
+        status: "in_game",
+      };
+      setRoom(updated);
       // Backend ve tüm WebSocket abonelerine oyunun başladığını ('in_game') bildir
       await roomService.changeRoomStatus(room.code, "in_game");
-      const fresh = (await roomService.getRoomByCode(room.code)) || {
-        ...room,
-        status: "in_game" as const,
-      };
-      onStartGame(fresh);
+      onStartGame(updated);
     }
   };
 

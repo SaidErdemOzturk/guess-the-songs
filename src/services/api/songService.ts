@@ -2,7 +2,11 @@ import { youtubeService, getPlaylistIdByStage } from './youtubeService';
 import { resolveYouTubeId } from '@/services/audio/youtubeResolver';
 import { youtubePlayerService } from '@/services/audio/youtubePlayerService';
 import { cleanTurkishText } from '@/utils/formatters';
+import { storage } from '@/utils/storage';
 import type { DifficultyLevel, Song, SongFilters, SongPoolStats } from '@/types/song';
+
+const RECENTLY_PLAYED_KEY = 'gts_recently_played_song_ids';
+const MAX_RECENTLY_PLAYED = 40;
 
 /**
  * Şarkı Servisi (Song Service)
@@ -16,6 +20,33 @@ export const songService = {
   stagePlaylists: {} as Record<number, Song[]>,
   // Çekilen bütün çalma listelerinin birleşmiş hali (searchSongs bu havuzda arama yapar)
   combinedPool: [] as Song[],
+
+  /**
+   * Son oynanan şarkıların kimliklerini döner (Yeni oyunda mükerrer gelmesini engeller)
+   */
+  getRecentlyPlayedIds(): Set<string> {
+    const list = storage.get<string[]>(RECENTLY_PLAYED_KEY, []);
+    return new Set(list.map(String));
+  },
+
+  /**
+   * Çalınan şarkıyı son çalınanlar listesine ekler
+   */
+  markSongAsPlayed(songId: string | number, youtubeId?: string): void {
+    const list = storage.get<string[]>(RECENTLY_PLAYED_KEY, []);
+    const updated = [String(songId)];
+    if (youtubeId) updated.push(String(youtubeId));
+
+    for (const id of list) {
+      if (!updated.includes(id)) {
+        updated.push(id);
+      }
+    }
+
+    // Maksimum hafıza boyutunu koru
+    const trimmed = updated.slice(0, MAX_RECENTLY_PLAYED);
+    storage.set(RECENTLY_PLAYED_KEY, trimmed);
+  },
 
   /**
    * Başla'ya basıldığı anda BÜTÜN aşama playlistlerini (Kolay, Orta, Zor) YouTube üzerinden çeker
@@ -153,12 +184,13 @@ export const songService = {
   },
 
   /**
-   * İlgili aşama için (örn. kolay adımda kolay adımdan) YouTube çalma listesinden random bir şarkı seçer.
+   * İlgili aşama için (örn. kolay adımda kolay adımdan, zor adımda zor adımdan) YouTube çalma listesinden random bir şarkı seçer.
+   * Daha önce çalınanları (bu oyunda veya önceki oyunlarda çalınan son şarkıları) eler.
    */
   async getRandomSongForStage(
     region: 'tr' | 'global' = 'tr',
     stageIndex: number = 0,
-    excludeSongId?: number | string
+    excludeIds?: (number | string)[] | Set<number | string> | number | string
   ): Promise<Song> {
     let songs = this.stagePlaylists[stageIndex];
     if (!songs || songs.length === 0) {
@@ -168,13 +200,41 @@ export const songService = {
       }
     }
 
+    const excludeSet = new Set<string>();
+    if (excludeIds) {
+      if (excludeIds instanceof Set) {
+        excludeIds.forEach((id) => excludeSet.add(String(id)));
+      } else if (Array.isArray(excludeIds)) {
+        excludeIds.forEach((id) => excludeSet.add(String(id)));
+      } else {
+        excludeSet.add(String(excludeIds));
+      }
+    }
+
+    const recentlyPlayedIds = this.getRecentlyPlayedIds();
+
     if (songs && songs.length > 0) {
+      // 1. Kademe: Hem bu oyundaki excludeSet'i hem de önceki oyunlarda son çalınanları ele
       let pool = songs.filter((s) => {
-        if (excludeSongId && (s.id === excludeSongId || s.youtubeId === excludeSongId)) return false;
+        if (excludeSet.has(String(s.id))) return false;
+        if (s.youtubeId && excludeSet.has(String(s.youtubeId))) return false;
+        if (recentlyPlayedIds.has(String(s.id))) return false;
+        if (s.youtubeId && recentlyPlayedIds.has(String(s.youtubeId))) return false;
         if (s.youtubeId && youtubePlayerService.isVideoUnplayable(s.youtubeId)) return false;
         return true;
       });
 
+      // 2. Kademe: Eğer liste kısıtlıysa ve tüm şarkılar son çalınanlardaysa, sadece bu oyundaki excludeSet'i ele
+      if (pool.length === 0) {
+        pool = songs.filter((s) => {
+          if (excludeSet.has(String(s.id))) return false;
+          if (s.youtubeId && excludeSet.has(String(s.youtubeId))) return false;
+          if (s.youtubeId && youtubePlayerService.isVideoUnplayable(s.youtubeId)) return false;
+          return true;
+        });
+      }
+
+      // 3. Kademe: Yalnızca telif engeli olmayan şarkılar
       if (pool.length === 0) {
         pool = songs.filter((s) => !s.youtubeId || !youtubePlayerService.isVideoUnplayable(s.youtubeId));
       }
@@ -186,6 +246,7 @@ export const songService = {
       const randomIndex = Math.floor(Math.random() * pool.length);
       const chosen = { ...pool[randomIndex] };
       chosen.youtubeId = chosen.youtubeId || resolveYouTubeId(chosen);
+      this.markSongAsPlayed(chosen.id, chosen.youtubeId);
       console.log(
         `🎲 [SongService] Aşama ${stageIndex} listesinden (${pool.length} parça) rastgele [indeks ${randomIndex}] seçildi: "${chosen.artist} - ${chosen.title}" (YouTube ID: ${chosen.youtubeId})`
       );
@@ -196,7 +257,9 @@ export const songService = {
     const fallbackPool = this.combinedPool.length > 0 ? this.combinedPool : (this.stagePlaylists[0] || []);
     if (fallbackPool.length > 0) {
       const idx = Math.floor(Math.random() * fallbackPool.length);
-      return { ...fallbackPool[idx] };
+      const fallbackChosen = { ...fallbackPool[idx] };
+      this.markSongAsPlayed(fallbackChosen.id, fallbackChosen.youtubeId);
+      return fallbackChosen;
     }
 
     // Son çare dinamik model
@@ -221,23 +284,45 @@ export const songService = {
    */
   async getRandomSongFromCombinedPool(
     region: 'tr' | 'global' = 'tr',
-    excludeIds: (number | string)[] = []
+    excludeIds: (number | string)[] | Set<number | string> = []
   ): Promise<Song> {
     if (!this.combinedPool || this.combinedPool.length === 0) {
       await this.initializeGamePlaylists(region);
     }
 
-    const excludeSet = new Set(excludeIds.map(String));
+    const excludeSet = new Set<string>();
+    if (excludeIds instanceof Set) {
+      excludeIds.forEach((id) => excludeSet.add(String(id)));
+    } else if (Array.isArray(excludeIds)) {
+      excludeIds.forEach((id) => excludeSet.add(String(id)));
+    } else if (excludeIds) {
+      excludeSet.add(String(excludeIds));
+    }
 
+    const recentlyPlayedIds = this.getRecentlyPlayedIds();
+
+    // 1. Kademe: Hem bu oyundaki excludeSet'i hem de önceki oyunlarda son çalınanları ele
     let pool = this.combinedPool.filter((s) => {
       if (excludeSet.has(String(s.id))) return false;
       if (s.youtubeId && excludeSet.has(String(s.youtubeId))) return false;
+      if (recentlyPlayedIds.has(String(s.id))) return false;
+      if (s.youtubeId && recentlyPlayedIds.has(String(s.youtubeId))) return false;
       if (s.youtubeId && youtubePlayerService.isVideoUnplayable(s.youtubeId)) return false;
       return true;
     });
 
+    // 2. Kademe: Eğer havuz tükendiyse sadece bu oyundaki excludeSet'i ele
     if (pool.length === 0) {
-      // Eğer havuz bittiyse (tüm şarkılar çalındıysa), sadece telif engeli olmayanlardan tekrar seç
+      pool = this.combinedPool.filter((s) => {
+        if (excludeSet.has(String(s.id))) return false;
+        if (s.youtubeId && excludeSet.has(String(s.youtubeId))) return false;
+        if (s.youtubeId && youtubePlayerService.isVideoUnplayable(s.youtubeId)) return false;
+        return true;
+      });
+    }
+
+    // 3. Kademe: Telif engeli olmayan şarkılar
+    if (pool.length === 0) {
       pool = this.combinedPool.filter((s) => !s.youtubeId || !youtubePlayerService.isVideoUnplayable(s.youtubeId));
     }
     if (pool.length === 0) {
@@ -248,6 +333,7 @@ export const songService = {
       const randomIndex = Math.floor(Math.random() * pool.length);
       const chosen = { ...pool[randomIndex] };
       chosen.youtubeId = chosen.youtubeId || resolveYouTubeId(chosen);
+      this.markSongAsPlayed(chosen.id, chosen.youtubeId);
       console.log(
         `🎲 [SongService] Birleşik havuzdan (${pool.length} parça) rastgele seçildi: "${chosen.artist} - ${chosen.title}" (YouTube ID: ${chosen.youtubeId})`
       );
@@ -255,7 +341,7 @@ export const songService = {
     }
 
     // Fallback:
-    return this.getRandomSongForStage(region, 0);
+    return this.getRandomSongForStage(region, 0, excludeIds);
   },
 
   /**

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ATTEMPT_DURATIONS, STAGES } from '@/constants/game';
 import { calculatePointsByDuration, gameService } from '@/services/api/gameService';
 import { authService } from '@/services/api/authService';
-import { roomService, parseServerDateMs } from '@/services/api/roomService';
+import { roomService, parseServerDateMs, isSameSong } from '@/services/api/roomService';
 import { songService } from '@/services/api/songService';
 import { youtubeService } from '@/services/api/youtubeService';
 import { webAudioService } from '@/services/audio/webAudioService';
@@ -26,7 +26,13 @@ export interface UseGameRoundOptions {
 
 export function useGameRound(options?: UseGameRoundOptions) {
   const roomCode = options?.roomCode;
-  const userId = options?.userId;
+  const sessionUser = authService.getSession().user;
+  const userId =
+    options?.userId ||
+    sessionUser?.id ||
+    (options?.room?.participants && sessionUser?.email
+      ? options.room.participants.find((p) => p.user.email === sessionUser.email)?.user.id
+      : undefined);
   const guessTimeLimitMinutesOption = options?.guessTimeLimitMinutes;
   const roomOption = options?.room;
   const isHostOption = options?.isHost;
@@ -83,6 +89,8 @@ export function useGameRound(options?: UseGameRoundOptions) {
   const [gameStages, setGameStages] = useState<GameStage[]>(STAGES);
   const usedSongIdsRef = useRef<Set<string | number>>(new Set());
   const customPlaylistSongsRef = useRef<Song[]>([]);
+  const lastGuessedRoundRef = useRef<number | null>(null);
+  const lastGuessedSongIdRef = useRef<string | number | null>(null);
 
   const isHandlingErrorRef = useRef(false);
   const consecutiveErrorCountRef = useRef(0);
@@ -124,19 +132,39 @@ export function useGameRound(options?: UseGameRoundOptions) {
     async (stageIdx: number, excludeId?: string | number, explicitMode?: GameMode): Promise<Song | null> => {
       const activeMode = explicitMode || gameModeRef.current || gameMode;
       const customList = customPlaylistSongsRef.current;
+      const excludeList = Array.from(usedSongIdsRef.current);
+      if (excludeId) excludeList.push(excludeId);
+
       if (customList.length > 0) {
         // Özel playlist varsa BU playlist içerisinden şarkı gelsin
-        const available = customList.filter((s) => {
-          if (excludeId && (s.id === excludeId || s.youtubeId === excludeId)) return false;
-          if (usedSongIdsRef.current.has(s.id)) return false;
-          if (s.youtubeId && usedSongIdsRef.current.has(s.youtubeId)) return false;
+        const excludeSet = new Set(excludeList.map(String));
+        const recentlyPlayedIds = songService.getRecentlyPlayedIds();
+
+        // 1. Kademe: Hem bu oyunda çalınmamış hem de son oyunlarda çalınmamış olanlar
+        let available = customList.filter((s) => {
+          if (excludeSet.has(String(s.id))) return false;
+          if (s.youtubeId && excludeSet.has(String(s.youtubeId))) return false;
+          if (recentlyPlayedIds.has(String(s.id))) return false;
+          if (s.youtubeId && recentlyPlayedIds.has(String(s.youtubeId))) return false;
           if (youtubePlayerService.isVideoUnplayable(s.youtubeId)) return false;
           return true;
         });
 
+        // 2. Kademe: Eğer liste bittiyse sadece bu oyunda çalınmamış olanlar
+        if (available.length === 0) {
+          available = customList.filter((s) => {
+            if (excludeSet.has(String(s.id))) return false;
+            if (s.youtubeId && excludeSet.has(String(s.youtubeId))) return false;
+            if (youtubePlayerService.isVideoUnplayable(s.youtubeId)) return false;
+            return true;
+          });
+        }
+
         if (available.length > 0) {
           const randomIndex = Math.floor(Math.random() * available.length);
-          return available[randomIndex];
+          const chosen = available[randomIndex];
+          songService.markSongAsPlayed(chosen.id, chosen.youtubeId);
+          return chosen;
         }
 
         // Tüm şarkılar kullanıldıysa en azından unplayable olmayan herhangi birini seç
@@ -146,19 +174,20 @@ export function useGameRound(options?: UseGameRoundOptions) {
             !youtubePlayerService.isVideoUnplayable(s.youtubeId)
         );
         if (playable.length > 0) {
-          return playable[Math.floor(Math.random() * playable.length)];
+          const chosen = playable[Math.floor(Math.random() * playable.length)];
+          songService.markSongAsPlayed(chosen.id, chosen.youtubeId);
+          return chosen;
         }
         return customList[0] || null;
       }
 
       // Özel playlist yoksa aktif olan varsayılan playlistten devam etsin
       if (activeMode === 'long') {
-        const excludeList = Array.from(usedSongIdsRef.current);
-        if (excludeId) excludeList.push(excludeId);
         return await songService.getRandomSongFromCombinedPool(currentRegion, excludeList);
       }
 
-      return await songService.getRandomSongForStage(currentRegion, stageIdx, excludeId);
+      // Kısa mod (Kolay -> Orta -> Zor): Aşama bazlı seçim yaparken de bu oyundaki ve önceki oyunlardaki şarkıları ele
+      return await songService.getRandomSongForStage(currentRegion, stageIdx, excludeList);
     },
     [currentRegion, gameMode]
   );
@@ -219,7 +248,20 @@ export function useGameRound(options?: UseGameRoundOptions) {
     if (roomOption.currentSong) {
       const incoming = roomOption.currentSong;
       const current = currentSongRef.current;
-      if (!current || (current.id !== incoming.id && current.youtubeId !== incoming.youtubeId)) {
+      if (!current || !isSameSong(current, incoming)) {
+        clearResetTimer();
+        webAudioService.stopCurrentAudio();
+        setIsPlaying(false);
+        setPlaybackSeconds(0);
+        setPlaybackRatio(0);
+        setIsGuessLocked(false);
+        setFeedback(null);
+        setLastEarnedPoints(null);
+        lastGuessedSongIdRef.current = null;
+        lastGuessedRoundRef.current = null;
+        usedSongIdsRef.current.add(incoming.id);
+        if (incoming.youtubeId) usedSongIdsRef.current.add(incoming.youtubeId);
+        songService.markSongAsPlayed(incoming.id, incoming.youtubeId);
         currentSongRef.current = incoming;
         setCurrentSong(incoming);
         setSongsPool([incoming]);
@@ -230,6 +272,9 @@ export function useGameRound(options?: UseGameRoundOptions) {
       // Fail-safe: Oda sahibi oyunda ama şarkı henüz belirlenmemişse otomatik seçip odaya ayarla
       pickNextSong(currentStageIndex).then((song) => {
         if (song && !currentSongRef.current) {
+          usedSongIdsRef.current.add(song.id);
+          if (song.youtubeId) usedSongIdsRef.current.add(song.youtubeId);
+          songService.markSongAsPlayed(song.id, song.youtubeId);
           currentSongRef.current = song;
           setCurrentSong(song);
           setSongsPool([song]);
@@ -250,12 +295,22 @@ export function useGameRound(options?: UseGameRoundOptions) {
 
     // Kullanıcı bu raund için zaten tahmin yapmışsa (sayfa yenilense dahi) girişi kilitle
     if (userId && roomOption.participants) {
+      const currentActiveRound = roomOption.currentRound || (currentStageIndex + 1);
       const participant = roomOption.participants.find((p) => String(p.user.id) === String(userId));
       if (participant) {
         if (participant.score !== undefined && participant.score > 0) {
           setScore((prev) => Math.max(prev, participant.score));
         }
-        if (participant.lastPointsEarned !== null && participant.lastPointsEarned !== undefined) {
+
+        // YALNIZCA bu kullanıcı bu spesifik raund ve şarkı için tahmin yapmışsa girişi kilitle!
+        const hasGuessedCurrent =
+          (participant.lastPointsEarned !== null && participant.lastPointsEarned !== undefined) ||
+          (participant.lastGuessedRound !== undefined && participant.lastGuessedRound === currentActiveRound) ||
+          (currentSong && participant.lastGuessedSongId !== undefined && String(participant.lastGuessedSongId) === String(currentSong.id)) ||
+          (lastGuessedRoundRef.current === currentActiveRound) ||
+          (currentSong && String(lastGuessedSongIdRef.current) === String(currentSong.id));
+
+        if (hasGuessedCurrent && participant.lastPointsEarned !== null && participant.lastPointsEarned !== undefined) {
           setIsGuessLocked(true);
           setLastEarnedPoints(participant.lastPointsEarned);
           setFeedback((prev) => {
@@ -293,9 +348,15 @@ export function useGameRound(options?: UseGameRoundOptions) {
     usedSongIdsRef.current.clear();
 
     try {
-      let roomObj: Room | null = null;
-      if (roomCode) {
-        roomObj = await roomService.getRoomByCode(roomCode);
+      let roomObj: Room | null = roomOption || null;
+      if (!roomObj && roomCode) {
+        const cleanCode = roomCode.toUpperCase().trim();
+        const stored = roomService.getStoredRooms()[cleanCode];
+        if (stored) {
+          roomObj = stored;
+        } else {
+          roomObj = await roomService.getRoomByCode(roomCode);
+        }
       }
 
       const mode = roomObj?.settings?.gameMode || params.gameMode || 'short';
@@ -389,7 +450,8 @@ export function useGameRound(options?: UseGameRoundOptions) {
       );
 
       // SADECE oda sahibi veya tek kişilik mod şarkı belirleyip setCurrentSong çağırabilir!
-      if (!initialSong) {
+      // Oda sahibi yeni oyun başlattığında önceki oyunun eski şarkısını kullanmaz, her zaman sıfırdan yeni şarkı seçer
+      if (!initialSong || amIHost) {
         if (!roomCode || amIHost) {
           initialSong = await pickNextSong(0, undefined, mode);
         }
@@ -408,6 +470,7 @@ export function useGameRound(options?: UseGameRoundOptions) {
       if (initialSong) {
         usedSongIdsRef.current.add(initialSong.id);
         if (initialSong.youtubeId) usedSongIdsRef.current.add(initialSong.youtubeId);
+        songService.markSongAsPlayed(initialSong.id, initialSong.youtubeId);
         currentSongRef.current = initialSong;
         setSongsPool([initialSong]);
         setCurrentSong(initialSong);
@@ -423,7 +486,12 @@ export function useGameRound(options?: UseGameRoundOptions) {
           if (participant.score !== undefined && participant.score > 0) {
             setScore(participant.score);
           }
-          if (participant.lastPointsEarned !== null && participant.lastPointsEarned !== undefined) {
+          const isGuessedThisRound =
+            (participant.lastPointsEarned !== null && participant.lastPointsEarned !== undefined) ||
+            (participant.lastGuessedRound !== undefined && participant.lastGuessedRound === (roomObj.currentRound || 1)) ||
+            (initialSong && participant.lastGuessedSongId !== undefined && String(participant.lastGuessedSongId) === String(initialSong.id));
+
+          if (isGuessedThisRound && participant.lastPointsEarned !== null && participant.lastPointsEarned !== undefined) {
             setIsGuessLocked(true);
             setLastEarnedPoints(participant.lastPointsEarned);
             setFeedback({
@@ -527,14 +595,19 @@ export function useGameRound(options?: UseGameRoundOptions) {
 
       setIsGuessLocked(true);
       setLastEarnedPoints(0);
+      lastGuessedRoundRef.current = currentStageIndex + 1;
+      lastGuessedSongIdRef.current = currentSong.id;
       onScoreUpdateRef.current?.(0, activeDuration, score);
 
-      if (roomCode && userId) {
+      const targetUserId = userId || authService.getSession().user?.id;
+      if (roomCode && targetUserId) {
         roomService.updateParticipantScore(
           roomCode,
-          userId,
+          targetUserId,
           0,
-          activeDuration
+          activeDuration,
+          currentStageIndex + 1,
+          currentSong.id
         );
       }
 
@@ -552,7 +625,7 @@ export function useGameRound(options?: UseGameRoundOptions) {
       setPlaybackSeconds(0);
       setPlaybackRatio(0);
     },
-    [isGuessLocked, currentSong, clearResetTimer, activeDuration, roomCode, userId, score]
+    [isGuessLocked, currentSong, clearResetTimer, activeDuration, roomCode, userId, score, currentStageIndex]
   );
 
   // Şarkıyı bilme süresi yetkili geri sayımı (YALNIZCA ODA İÇERİSİNDEYSE çalışır)
@@ -597,7 +670,7 @@ export function useGameRound(options?: UseGameRoundOptions) {
 
     const unsubscribe = roomService.onSongChanged(roomCode, async (syncSong, round, endsAt) => {
       const current = currentSongRef.current;
-      if (current && (current.id === syncSong.id || (current.youtubeId && current.youtubeId === syncSong.youtubeId))) {
+      if (current && isSameSong(current, syncSong)) {
         // Zaten bu şarkı ayarlanmış, mükerrer istek atmayı engelle
         return;
       }
@@ -610,7 +683,12 @@ export function useGameRound(options?: UseGameRoundOptions) {
       setIsGuessLocked(false);
       setFeedback(null);
       setLastEarnedPoints(null);
+      lastGuessedSongIdRef.current = null;
+      lastGuessedRoundRef.current = null;
       consecutiveErrorCountRef.current = 0;
+      usedSongIdsRef.current.add(syncSong.id);
+      if (syncSong.youtubeId) usedSongIdsRef.current.add(syncSong.youtubeId);
+      songService.markSongAsPlayed(syncSong.id, syncSong.youtubeId);
       setCurrentSong(syncSong);
       currentSongRef.current = syncSong;
       setCurrentStageIndex(Math.max(0, round - 1));
@@ -696,6 +774,7 @@ export function useGameRound(options?: UseGameRoundOptions) {
           console.log(`✨ [GameRound] Yeni parça yüklendi: "${replacementSong.artist} - ${replacementSong.title}"`);
           usedSongIdsRef.current.add(replacementSong.id);
           if (replacementSong.youtubeId) usedSongIdsRef.current.add(replacementSong.youtubeId);
+          songService.markSongAsPlayed(replacementSong.id, replacementSong.youtubeId);
           currentSongRef.current = replacementSong;
           setCurrentSong(replacementSong);
           setSongsPool([replacementSong]);
@@ -728,6 +807,9 @@ export function useGameRound(options?: UseGameRoundOptions) {
     setPlaybackRatio(0);
     setIsGuessLocked(false);
     setLastEarnedPoints(null);
+    setFeedback(null);
+    lastGuessedSongIdRef.current = null;
+    lastGuessedRoundRef.current = null;
     const limitMinutes = guessTimeLimitMinutes || guessTimeLimitMinutesOption || 1;
     if (roomCode) {
       setRoundCountdownSeconds(limitMinutes * 60);
@@ -737,10 +819,6 @@ export function useGameRound(options?: UseGameRoundOptions) {
 
     if (currentStageIndex < gameStages.length - 1) {
       const nextStage = currentStageIndex + 1;
-      setCurrentStageIndex(nextStage);
-      setCurrentAttemptIndex(0);
-      setFeedback(null);
-
       setIsLoadingSong(true);
       try {
         const nextSong = await pickNextSong(nextStage, currentSong?.id);
@@ -748,7 +826,17 @@ export function useGameRound(options?: UseGameRoundOptions) {
         if (nextSong) {
           usedSongIdsRef.current.add(nextSong.id);
           if (nextSong.youtubeId) usedSongIdsRef.current.add(nextSong.youtubeId);
+          songService.markSongAsPlayed(nextSong.id, nextSong.youtubeId);
+          currentSongRef.current = nextSong;
           setCurrentSong(nextSong);
+          setCurrentStageIndex(nextStage);
+          setCurrentAttemptIndex(0);
+          setIsGuessLocked(false);
+          setFeedback(null);
+          setLastEarnedPoints(null);
+          lastGuessedSongIdRef.current = null;
+          lastGuessedRoundRef.current = null;
+
           if (roomCode) {
             // Şarkı değiştiğinde backend tarafına son saniye tekrardan setlenir
             const updated = await roomService.setCurrentSong(roomCode, nextSong, nextStage + 1);
@@ -763,6 +851,11 @@ export function useGameRound(options?: UseGameRoundOptions) {
         console.warn('⚠️ [GameRound] Sonraki şarkı yükleme hatası:', err);
       } finally {
         setIsLoadingSong(false);
+        setIsGuessLocked(false);
+        setFeedback(null);
+        setLastEarnedPoints(null);
+        lastGuessedSongIdRef.current = null;
+        lastGuessedRoundRef.current = null;
       }
     } else {
       setIsGameOver(true);
@@ -833,6 +926,8 @@ export function useGameRound(options?: UseGameRoundOptions) {
 
         const earned = response.pointsEarned;
         setLastEarnedPoints(earned);
+        lastGuessedRoundRef.current = currentStageIndex + 1;
+        lastGuessedSongIdRef.current = currentSong.id;
         setScore((prev) => {
           const nextScore = prev + earned;
           onScoreUpdateRef.current?.(earned, activeDuration, nextScore);
@@ -840,12 +935,15 @@ export function useGameRound(options?: UseGameRoundOptions) {
         });
 
         // Oda aktifse oda katılımcısının skorunu da güncelle
-        if (roomCode && userId) {
+        const targetUserId = userId || authService.getSession().user?.id;
+        if (roomCode && targetUserId) {
           roomService.updateParticipantScore(
             roomCode,
-            userId,
+            targetUserId,
             earned,
-            activeDuration
+            activeDuration,
+            currentStageIndex + 1,
+            currentSong.id
           );
         }
 

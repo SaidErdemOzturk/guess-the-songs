@@ -73,6 +73,70 @@ function unwrapData<T>(response: unknown): T {
 }
 
 /**
+ * Şarkı nesnesini frontend standart modeline normalize eder (PascalCase / camelCase / JSON string / tip uyumluluğu).
+ * Backend (.NET API) veya WebSocket üzerinden gelebilecek farklı isimlendirmeleri (Title, Artist, YoutubeId vb.)
+ * ve tipleri standart Song arayüzüne dönüştürür.
+ */
+export function normalizeSong(raw: any): Song | null {
+  if (!raw) return null;
+
+  // Backend veya depolamadan string olarak serialize edilmişse parse et
+  if (typeof raw === 'string') {
+    try {
+      raw = JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+
+  if (typeof raw !== 'object' || raw === null) return null;
+
+  const id = raw.id ?? raw.Id ?? raw.songId ?? raw.SongId;
+  const youtubeId = raw.youtubeId ?? raw.YoutubeId ?? raw.youtube_id;
+  const title = raw.title ?? raw.Title;
+  const artist = raw.artist ?? raw.Artist;
+
+  // Şarkıyı tanımlayacak temel bilgiler yoksa geçerli sayılmaz
+  if (!id && !youtubeId && !title) return null;
+
+  return {
+    ...raw,
+    id: id !== undefined && id !== null ? (typeof id === 'number' ? id : String(id)) : String(youtubeId || ''),
+    title: String(title || ''),
+    artist: String(artist || ''),
+    youtubeId: youtubeId ? String(youtubeId) : (raw.youtubeId || ''),
+    year: Number(raw.year ?? raw.Year ?? raw.releaseYear ?? raw.ReleaseYear ?? 2024),
+    genre: raw.genre || raw.Genre || 'pop',
+    region: raw.region || raw.Region || 'tr',
+    difficulty: raw.difficulty || raw.Difficulty || 'easy',
+    difficultyRank: Number(raw.difficultyRank ?? raw.DifficultyRank ?? 1),
+    startSecond: Number(raw.startSecond ?? raw.StartSecond ?? 0),
+    duration: Number(raw.duration ?? raw.Duration ?? 30),
+    coverUrl:
+      raw.coverUrl ||
+      raw.CoverUrl ||
+      raw.albumCoverUrl ||
+      raw.AlbumCoverUrl ||
+      (youtubeId ? `https://img.youtube.com/vi/${youtubeId}/hqdefault.jpg` : undefined),
+    previewUrl: raw.previewUrl || raw.PreviewUrl || undefined,
+    album: raw.album || raw.Album || undefined,
+    spotifyId: raw.spotifyId || raw.SpotifyId || undefined,
+  };
+}
+
+/**
+ * İki şarkının aynı parça olup olmadığını güvenle karşılaştırır
+ */
+export function isSameSong(a: Song | null | undefined, b: Song | null | undefined): boolean {
+  if (!a || !b) return false;
+  if (a.id !== undefined && b.id !== undefined && String(a.id) === String(b.id)) return true;
+  const aYt = String(a.youtubeId || '').trim();
+  const bYt = String(b.youtubeId || '').trim();
+  if (aYt && bYt && aYt === bYt) return true;
+  return false;
+}
+
+/**
  * Backend RoomDetailDto / Room nesnesini frontend uyumlu standart Room modeline normalize eder
  */
 export function normalizeRoom(data: unknown): Room | null {
@@ -96,8 +160,10 @@ export function normalizeRoom(data: unknown): Room | null {
       isHost: Boolean(p.isHost),
       isReady: Boolean(p.isReady),
       score: Number(p.score || 0),
-      lastPointsEarned: p.lastPointsEarned,
-      lastGuessDuration: p.lastGuessDuration,
+      lastPointsEarned: p.lastPointsEarned ?? p.LastPointsEarned,
+      lastGuessDuration: p.lastGuessDuration ?? p.LastGuessDuration,
+      lastGuessedRound: p.lastGuessedRound ?? p.LastGuessedRound,
+      lastGuessedSongId: p.lastGuessedSongId ?? p.LastGuessedSongId,
       joinedAt: p.joinedAt || new Date().toISOString(),
     };
   });
@@ -137,6 +203,9 @@ export function normalizeRoom(data: unknown): Room | null {
     playlistUrl: rawSettings.playlistUrl || rawSettings.PlaylistUrl || undefined,
   };
 
+  const rawSong = raw.currentSong || raw.CurrentSong;
+  const currentSong = rawSong ? (normalizeSong(rawSong) || rawSong) : null;
+
   return {
     id: String(raw.id || raw.code || raw.Id || raw.Code),
     code: String(raw.code || raw.Code).toUpperCase().trim(),
@@ -148,7 +217,7 @@ export function normalizeRoom(data: unknown): Room | null {
     guessTimeLimitMinutes: limitMinutes,
     settings,
     createdAt: raw.createdAt || raw.CreatedAt || new Date().toISOString(),
-    currentSong: raw.currentSong || raw.CurrentSong || null,
+    currentSong,
     currentRound: Number(raw.currentRound || raw.CurrentRound || 1),
     currentRoundStartedAt: raw.currentRoundStartedAt || raw.CurrentRoundStartedAt || raw.startedAt || raw.StartedAt,
     currentRoundEndsAt: raw.currentRoundEndsAt || raw.CurrentRoundEndsAt || raw.roundEndsAt || raw.RoundEndsAt || raw.endsAt || raw.EndsAt,
@@ -358,7 +427,8 @@ export const roomService = {
               const endsAt = songPayload.currentRoundEndsAt || songPayload.roundEndsAt || songPayload.endsAt || new Date(now + baseMinutes * 60 * 1000).toISOString();
 
               if (current) {
-                current.currentSong = songPayload.song;
+                const normalizedSong = normalizeSong(songPayload.song) || songPayload.song;
+                current.currentSong = normalizedSong;
                 current.currentRound = songPayload.round || current.currentRound || 1;
                 current.currentRoundStartedAt = startedAt;
                 current.currentRoundEndsAt = endsAt;
@@ -366,6 +436,8 @@ export const roomService = {
                 current.participants.forEach((p) => {
                   p.lastPointsEarned = undefined;
                   p.lastGuessDuration = undefined;
+                  p.lastGuessedRound = undefined;
+                  p.lastGuessedSongId = undefined;
                 });
                 rooms[cleanCode] = current;
                 storage.set(ROOMS_STORAGE_KEY, rooms);
@@ -375,9 +447,10 @@ export const roomService = {
 
               const songSubs = songSubscribers.get(cleanCode);
               if (songSubs) {
+                const normalizedSong = normalizeSong(songPayload.song) || songPayload.song;
                 songSubs.forEach((cb) => {
                   try {
-                    cb(songPayload.song!, songPayload.round || 1, endsAt);
+                    cb(normalizedSong, songPayload.round || 1, endsAt);
                   } catch (e) {
                     console.error('[roomService] Song subscriber callback error:', e);
                   }
@@ -423,7 +496,7 @@ export const roomService = {
                   p.lastPointsEarned = undefined;
                   p.lastGuessDuration = undefined;
                 });
-              } else if (newStatus === 'waiting') {
+              } else if (newStatus === 'waiting' || newStatus === 'finished') {
                 current.currentSong = null;
                 current.currentRound = 1;
                 current.currentRoundStartedAt = undefined;
@@ -438,22 +511,31 @@ export const roomService = {
               broadcastRoomLocally(current);
               this.notifySubscribers(cleanCode, current);
             }
-
-            // Backend verisini de tazeleyip bildir
-            this.getRoomByCode(cleanCode).then((fresh) => {
-              if (fresh) {
-                this.notifySubscribers(cleanCode, fresh);
-              }
-            });
             return;
           }
 
           if (msg.type === 'PARTICIPANT_LEFT') {
-            this.getRoomByCode(cleanCode).then((fresh) => {
-              if (fresh) {
-                this.notifySubscribers(cleanCode, fresh);
+            const payload = msg.data as { userId?: string; targetUserId?: string; room?: any } | string;
+            const targetId = typeof payload === 'object' ? (payload?.targetUserId || payload?.userId) : String(payload);
+            const rooms = this.getStoredRooms();
+            const current = rooms[cleanCode];
+            if (current && targetId) {
+              current.participants = current.participants.filter(
+                (p) => String(p.user.id) !== String(targetId)
+              );
+              rooms[cleanCode] = current;
+              storage.set(ROOMS_STORAGE_KEY, rooms);
+              broadcastRoomLocally(current);
+              this.notifySubscribers(cleanCode, current);
+            } else if (typeof payload === 'object' && payload?.room) {
+              const updatedRoom = normalizeRoom(payload.room);
+              if (updatedRoom) {
+                rooms[cleanCode] = updatedRoom;
+                storage.set(ROOMS_STORAGE_KEY, rooms);
+                broadcastRoomLocally(updatedRoom);
+                this.notifySubscribers(cleanCode, updatedRoom);
               }
-            });
+            }
             return;
           }
 
@@ -468,14 +550,22 @@ export const roomService = {
                 const rooms = this.getStoredRooms();
                 rooms[cleanCode] = updatedRoom;
                 storage.set(ROOMS_STORAGE_KEY, rooms);
+                broadcastRoomLocally(updatedRoom);
                 this.notifySubscribers(cleanCode, updatedRoom);
               }
-            } else {
-              this.getRoomByCode(cleanCode).then((fresh) => {
-                if (fresh) {
-                  this.notifySubscribers(cleanCode, fresh);
-                }
-              });
+            } else if (targetUserId) {
+              const rooms = this.getStoredRooms();
+              const current = rooms[cleanCode];
+              if (current) {
+                current.participants = current.participants.filter(
+                  (p) => String(p.user.id) !== String(targetUserId)
+                );
+                rooms[cleanCode] = current;
+                storage.set(ROOMS_STORAGE_KEY, rooms);
+                broadcastRoomLocally(current);
+                updatedRoom = current;
+                this.notifySubscribers(cleanCode, current);
+              }
             }
 
             const kickSubs = kickedSubscribers.get(cleanCode);
@@ -500,14 +590,34 @@ export const roomService = {
             const updatedRoom = normalizeRoom(msg.data);
             if (updatedRoom && updatedRoom.code) {
               const rooms = this.getStoredRooms();
+              const prevRoom = rooms[cleanCode];
+
+              // Skor güncellemesinde veya oda güncellemesinde katılımcıların tahmin durumlarını koru
+              if (prevRoom?.participants) {
+                updatedRoom.participants = updatedRoom.participants.map((p) => {
+                  const prevP = prevRoom.participants.find((ep) => String(ep.user.id) === String(p.user.id));
+                  return {
+                    ...p,
+                    lastPointsEarned: p.lastPointsEarned !== undefined && p.lastPointsEarned !== null ? p.lastPointsEarned : prevP?.lastPointsEarned,
+                    lastGuessDuration: p.lastGuessDuration !== undefined && p.lastGuessDuration !== null ? p.lastGuessDuration : prevP?.lastGuessDuration,
+                    lastGuessedRound: p.lastGuessedRound ?? prevP?.lastGuessedRound,
+                    lastGuessedSongId: p.lastGuessedSongId ?? prevP?.lastGuessedSongId,
+                  };
+                });
+              }
+
               rooms[cleanCode] = updatedRoom;
               storage.set(ROOMS_STORAGE_KEY, rooms);
 
               // Abone olan tüm bileşenlere canlı oda güncellemesi dağıt
               this.notifySubscribers(cleanCode, updatedRoom);
 
-              // Eğer odanın currentSong alanı güncellendiyse şarkı abonelerine de ilet
-              if (updatedRoom.currentSong) {
+              // Skor güncellemesinde şarkı değişmez! SADECE şarkı gerçekten değiştiğinde şarkı abonelerini çağır
+              if (
+                msg.type !== 'SCORE_UPDATED' &&
+                updatedRoom.currentSong &&
+                (!prevRoom?.currentSong || !isSameSong(prevRoom.currentSong, updatedRoom.currentSong))
+              ) {
                 const songSubs = songSubscribers.get(cleanCode);
                 if (songSubs) {
                   songSubs.forEach((cb) => cb(updatedRoom.currentSong!, updatedRoom.currentRound || 1, updatedRoom.currentRoundEndsAt));
@@ -533,6 +643,16 @@ export const roomService = {
           clearInterval(pingIntervalId);
           pingIntervalId = null;
         }
+
+        // Eğer hala odaya abone olan bileşenler varsa 3 saniye sonra otomatik yeniden bağlan
+        if (roomSubscribers.has(cleanCode) || songSubscribers.has(cleanCode)) {
+          setTimeout(() => {
+            if (!activeWebSocket && (roomSubscribers.has(cleanCode) || songSubscribers.has(cleanCode))) {
+              console.log(`🔄 [roomService] WebSocket bağlantısı koptu, yeniden bağlanılıyor (${cleanCode})...`);
+              this.connectWebSocket(cleanCode, currentUser);
+            }
+          }, 3000);
+        }
       };
 
       return ws;
@@ -540,6 +660,15 @@ export const roomService = {
       console.warn(`[roomService] WebSocket setup failed for room ${cleanCode}:`, err);
       return null;
     }
+  },
+
+  /**
+   * Aktif WebSocket bağlantısının açık olup olmadığını kontrol eder
+   */
+  isWebSocketConnected(roomCode?: string): boolean {
+    if (!activeWebSocket || activeWebSocket.readyState !== WebSocket.OPEN) return false;
+    if (roomCode) return currentConnectedCode === roomCode.toUpperCase().trim();
+    return true;
   },
 
   /**
@@ -637,6 +766,8 @@ export const roomService = {
         targetRoom.participants.forEach((p) => {
           p.lastPointsEarned = undefined;
           p.lastGuessDuration = undefined;
+          p.lastGuessedRound = undefined;
+          p.lastGuessedSongId = undefined;
         });
         rooms[cleanCode] = targetRoom;
         storage.set(ROOMS_STORAGE_KEY, rooms);
@@ -670,6 +801,8 @@ export const roomService = {
       room.participants.forEach((p) => {
         p.lastPointsEarned = undefined;
         p.lastGuessDuration = undefined;
+        p.lastGuessedRound = undefined;
+        p.lastGuessedSongId = undefined;
       });
       rooms[cleanCode] = room;
       storage.set(ROOMS_STORAGE_KEY, rooms);
@@ -802,11 +935,47 @@ export const roomService = {
       if (room && room.code) {
         const rooms = this.getStoredRooms();
         const existing = rooms[cleanCode];
-        if (existing?.currentRoundEndsAt && !room.currentRoundEndsAt) {
-          room.currentRoundEndsAt = existing.currentRoundEndsAt;
-        }
-        if (existing?.currentRoundStartedAt && !room.currentRoundStartedAt) {
-          room.currentRoundStartedAt = existing.currentRoundStartedAt;
+        if (existing) {
+          if (existing.status && existing.status !== room.status) {
+            room.status = existing.status;
+          }
+          if (existing.currentRound && (!room.currentRound || existing.currentRound > room.currentRound)) {
+            room.currentRound = existing.currentRound;
+            room.currentSong = existing.currentSong || room.currentSong;
+          }
+          if (existing.currentRoundEndsAt && !room.currentRoundEndsAt) {
+            room.currentRoundEndsAt = existing.currentRoundEndsAt;
+          }
+          if (existing.currentRoundStartedAt && !room.currentRoundStartedAt) {
+            room.currentRoundStartedAt = existing.currentRoundStartedAt;
+          }
+
+          // Katılımcıların bu raund için puan durumlarını senkronize et:
+          // Hem backend'den dönen güncel puanları hem de henüz REST'e yansımamış yerel puanları koru!
+          const activeRound = room.currentRound || existing.currentRound || 1;
+          const activeSongId = room.currentSong?.id || existing.currentSong?.id;
+
+          room.participants = room.participants.map((p) => {
+            const existingP = existing.participants?.find((ep) => String(ep.user.id) === String(p.user.id));
+            const bestScore = Math.max(p.score || 0, existingP?.score || 0);
+
+            // Backend'den gelen veya yerelde kaydedilmiş en güncel puanı al
+            const earned = p.lastPointsEarned !== undefined && p.lastPointsEarned !== null
+              ? p.lastPointsEarned
+              : existingP?.lastPointsEarned;
+            const duration = p.lastGuessDuration !== undefined && p.lastGuessDuration !== null
+              ? p.lastGuessDuration
+              : existingP?.lastGuessDuration;
+
+            return {
+              ...p,
+              score: bestScore,
+              lastPointsEarned: earned,
+              lastGuessDuration: duration,
+              lastGuessedRound: existingP?.lastGuessedRound ?? (earned !== undefined && earned !== null ? activeRound : undefined),
+              lastGuessedSongId: existingP?.lastGuessedSongId ?? (earned !== undefined && earned !== null ? activeSongId : undefined),
+            };
+          });
         }
         rooms[cleanCode] = room;
         storage.set(ROOMS_STORAGE_KEY, rooms);
@@ -927,9 +1096,22 @@ export const roomService = {
     roomCode: string,
     userId: string,
     pointsEarned: number,
-    duration: number
+    duration: number,
+    round?: number,
+    songId?: string | number
   ): Promise<Room | null> {
     const cleanCode = roomCode.toUpperCase().trim();
+    const rooms = this.getStoredRooms();
+    const currentRoom = rooms[cleanCode];
+    const sessionUser = authService.getSession().user;
+    const effectiveUserId =
+      userId ||
+      sessionUser?.id ||
+      (currentRoom?.participants && sessionUser?.email
+        ? currentRoom.participants.find((p) => p.user.email === sessionUser.email)?.user.id
+        : userId);
+    const targetRound = round ?? currentRoom?.currentRound ?? 1;
+    const targetSongId = songId ?? currentRoom?.currentSong?.id;
 
     // 1. Öncelik: Aktif WebSocket varsa sıfır gecikmeyle anında gönder!
     if (activeWebSocket && activeWebSocket.readyState === WebSocket.OPEN && currentConnectedCode === cleanCode) {
@@ -939,9 +1121,11 @@ export const roomService = {
             type: 'UPDATE_SCORE',
             payload: {
               roomCode: cleanCode,
-              userId,
+              userId: effectiveUserId,
               pointsEarned,
               duration,
+              round: targetRound,
+              songId: targetSongId,
             },
           })
         );
@@ -950,10 +1134,27 @@ export const roomService = {
       }
     }
 
+    // Yerel depoda HEMEN güncelle (REST cevabını beklemeden anında reaktif olmasını sağlar)
+    if (currentRoom) {
+      const p = currentRoom.participants.find((item) => String(item.user.id) === String(effectiveUserId));
+      if (p) {
+        p.score = (p.score || 0) + pointsEarned;
+        p.lastPointsEarned = pointsEarned;
+        p.lastGuessDuration = duration;
+        p.lastGuessedRound = targetRound;
+        p.lastGuessedSongId = targetSongId;
+      }
+      currentRoom.participants.sort((a, b) => (b.score || 0) - (a.score || 0));
+      rooms[cleanCode] = currentRoom;
+      storage.set(ROOMS_STORAGE_KEY, rooms);
+      broadcastRoomLocally(currentRoom);
+      this.notifySubscribers(cleanCode, currentRoom);
+    }
+
     // 2. REST API çağrısı ile veritabanını güncelle ve garantile
     const payload = {
       roomCode: cleanCode,
-      userId,
+      userId: effectiveUserId,
       pointsEarned,
       duration,
     };
@@ -966,7 +1167,19 @@ export const roomService = {
 
       const updatedRoom = normalizeRoom(response);
       if (updatedRoom && updatedRoom.code) {
-        const rooms = this.getStoredRooms();
+        // updatedRoom katılımcılarında hem geçerli kullanıcının hem diğer katılımcıların round ve puan verilerini koru
+        const currentData = rooms[cleanCode];
+        updatedRoom.participants = updatedRoom.participants.map((p) => {
+          const isTarget = String(p.user.id) === String(userId);
+          const prevP = currentData?.participants?.find((ep) => String(ep.user.id) === String(p.user.id));
+          return {
+            ...p,
+            lastPointsEarned: isTarget ? pointsEarned : (p.lastPointsEarned !== undefined && p.lastPointsEarned !== null ? p.lastPointsEarned : prevP?.lastPointsEarned),
+            lastGuessDuration: isTarget ? duration : (p.lastGuessDuration !== undefined && p.lastGuessDuration !== null ? p.lastGuessDuration : prevP?.lastGuessDuration),
+            lastGuessedRound: isTarget ? targetRound : (p.lastGuessedRound ?? prevP?.lastGuessedRound),
+            lastGuessedSongId: isTarget ? targetSongId : (p.lastGuessedSongId ?? prevP?.lastGuessedSongId),
+          };
+        });
         rooms[cleanCode] = updatedRoom;
         storage.set(ROOMS_STORAGE_KEY, rooms);
         this.notifySubscribers(cleanCode, updatedRoom);
@@ -976,24 +1189,7 @@ export const roomService = {
       console.warn(`[roomService] Backend updateParticipantScore failed, fallback to local:`, err);
     }
 
-    // Fallback: Yerel depoda skor güncelle
-    const rooms = this.getStoredRooms();
-    const room = rooms[cleanCode];
-    if (!room) return null;
-
-    const participant = room.participants.find((p) => p.user.id === userId);
-    if (participant) {
-      participant.score = (participant.score || 0) + pointsEarned;
-      participant.lastPointsEarned = pointsEarned;
-      participant.lastGuessDuration = duration;
-    }
-
-    room.participants.sort((a, b) => (b.score || 0) - (a.score || 0));
-    rooms[cleanCode] = room;
-    storage.set(ROOMS_STORAGE_KEY, rooms);
-    this.notifySubscribers(cleanCode, room);
-
-    return room;
+    return currentRoom || null;
   },
 
   /**
@@ -1073,7 +1269,7 @@ export const roomService = {
           p.lastPointsEarned = undefined;
           p.lastGuessDuration = undefined;
         });
-      } else if (status === 'waiting') {
+      } else if (status === 'waiting' || status === 'finished') {
         current.currentSong = null;
         current.currentRound = 1;
         current.currentRoundStartedAt = undefined;
@@ -1149,8 +1345,8 @@ export const roomService = {
       return unwrapData<RoomParticipant[]>(response) || [];
     } catch (err) {
       console.warn(`[roomService] getLeaderboard failed:`, err);
-      const room = await this.getRoomByCode(cleanCode);
-      return room?.participants || [];
+      const rooms = this.getStoredRooms();
+      return rooms[cleanCode]?.participants || [];
     }
   },
 

@@ -10,6 +10,7 @@ import {
 import { RoomScoreboard } from '@/features/room/components/RoomScoreboard/RoomScoreboard';
 import { RoomGameOverModal } from '@/features/room/components/RoomGameOverModal/RoomGameOverModal';
 import { roomService } from '@/services/api/roomService';
+import { authService } from '@/services/api/authService';
 import { webAudioService } from '@/services/audio/webAudioService';
 import { getAttemptSkipAdd, STAGES } from '@/constants/game';
 import type { CreateGameSessionRequest } from '@/types/game';
@@ -36,26 +37,43 @@ export const RoomGamePage: React.FC<RoomGamePageProps> = ({
   const [room, setRoom] = useState<Room | null>(initialRoom || null);
   const hasGameStartedRef = useRef(false);
   const currentRoomCodeRef = useRef(roomCode);
+  const isNavigatingBackRef = useRef(false);
+
+  const effectiveUserId =
+    currentUserId ||
+    authService.getSession().user?.id ||
+    (room?.participants && authService.getSession().user?.email
+      ? room.participants.find((p) => p.user.email === authService.getSession().user?.email)?.user.id
+      : undefined);
 
   useEffect(() => {
     if (currentRoomCodeRef.current !== roomCode) {
       currentRoomCodeRef.current = roomCode;
       hasGameStartedRef.current = false;
+      isNavigatingBackRef.current = false;
     }
   }, [roomCode]);
 
   useEffect(() => {
     if (!roomCode) return;
 
-    roomService.getRoomByCode(roomCode).then((updatedRoom) => {
-      if (updatedRoom) {
-        setRoom(updatedRoom);
-      }
-    });
+    const cleanCode = roomCode.toUpperCase().trim();
+    const stored = roomService.getStoredRooms()[cleanCode];
+    if (stored && !room) {
+      setRoom(stored);
+    } else if (!room && !stored) {
+      roomService.getRoomByCode(roomCode).then((updatedRoom) => {
+        if (updatedRoom) {
+          setRoom(updatedRoom);
+        }
+      });
+    }
 
     const unsubscribe = roomService.subscribeToRoom(roomCode, (updatedRoom) => {
       setRoom(updatedRoom);
       if (updatedRoom.status === 'waiting') {
+        if (isNavigatingBackRef.current) return;
+        isNavigatingBackRef.current = true;
         webAudioService.stopCurrentAudio();
         if (onBackToRoom) {
           onBackToRoom();
@@ -76,37 +94,17 @@ export const RoomGamePage: React.FC<RoomGamePageProps> = ({
       unsubscribe();
       unsubscribeKick();
     };
-  }, [roomCode, currentUserId, onBackToHome, onBackToRoom]);
+  }, [roomCode, currentUserId, onBackToHome, onBackToRoom, room]);
 
   const handleScoreUpdate = useCallback(() => {
     if (!roomCode) return;
-    roomService.getRoomByCode(roomCode).then((updatedRoom) => {
-      if (updatedRoom) {
-        setRoom(updatedRoom);
-      }
-    });
+    const cleanCode = roomCode.toUpperCase().trim();
+    const stored = roomService.getStoredRooms()[cleanCode];
+    if (stored) {
+      setRoom({ ...stored });
+    }
   }, [roomCode]);
 
-  // Canlı skor ve oda durumunu senkronize tutmak için hafif periyodik yenileme (WebSocket gecikmelerine karşı fallback)
-  useEffect(() => {
-    if (!roomCode) return;
-    const interval = setInterval(() => {
-      roomService.getRoomByCode(roomCode).then((fresh) => {
-        if (fresh) {
-          setRoom(fresh);
-          if (fresh.status === 'waiting') {
-            webAudioService.stopCurrentAudio();
-            if (onBackToRoom) {
-              onBackToRoom();
-            } else {
-              onBackToHome();
-            }
-          }
-        }
-      });
-    }, 2000);
-    return () => clearInterval(interval);
-  }, [roomCode, onBackToRoom, onBackToHome]);
 
   const roomGuessLimit =
     room?.guessTimeLimitMinutes ||
@@ -150,7 +148,7 @@ export const RoomGamePage: React.FC<RoomGamePageProps> = ({
     goToNextSong,
   } = useGameRound({
     roomCode,
-    userId: currentUserId,
+    userId: effectiveUserId,
     guessTimeLimitMinutes: roomGuessLimit,
     room,
     isHost,
@@ -197,6 +195,8 @@ export const RoomGamePage: React.FC<RoomGamePageProps> = ({
 
   // 'Modu değiştir' veya 'Odaya Dön' basıldığında oyunu bitirip tüm odayı lobiye döndür
   const handleBackToRoomOrChangeMode = useCallback(async () => {
+    if (isNavigatingBackRef.current) return;
+    isNavigatingBackRef.current = true;
     webAudioService.stopCurrentAudio();
     if (roomCode) {
       try {
@@ -211,6 +211,25 @@ export const RoomGamePage: React.FC<RoomGamePageProps> = ({
       onBackToHome();
     }
   }, [roomCode, onBackToRoom, onBackToHome]);
+
+  const handleNextSong = useCallback(async () => {
+    setRoom((prev) =>
+      prev
+        ? {
+            ...prev,
+            currentRound: (prev.currentRound || 1) + 1,
+            participants: prev.participants.map((p) => ({
+              ...p,
+              lastPointsEarned: undefined,
+              lastGuessDuration: undefined,
+              lastGuessedRound: undefined,
+              lastGuessedSongId: undefined,
+            })),
+          }
+        : null
+    );
+    await goToNextSong();
+  }, [goToNextSong]);
 
   return (
     <div className={styles.roomGameContainer}>
@@ -245,7 +264,7 @@ export const RoomGamePage: React.FC<RoomGamePageProps> = ({
           feedback={feedback}
           isLoading={isLoadingSong || !currentSong}
           isSongRevealed={isSongRevealed}
-          onNextSong={goToNextSong}
+          onNextSong={handleNextSong}
           isLastStage={currentStageIndex >= totalStages - 1}
           isRoomMode={true}
           isHost={isHost}
@@ -292,7 +311,7 @@ export const RoomGamePage: React.FC<RoomGamePageProps> = ({
         <div className={styles.sidebarArea}>
           <RoomScoreboard
             room={room}
-            currentUserId={currentUserId}
+            currentUserId={effectiveUserId}
             onKickParticipant={handleKickParticipant}
             isCurrentUserGuessing={!isGuessLocked && !feedback?.isSuccess && !isSongRevealed && !isGameOver}
             currentUserEarnedPoints={lastEarnedPoints}
@@ -304,7 +323,7 @@ export const RoomGamePage: React.FC<RoomGamePageProps> = ({
       {(isGameOver || room?.status === 'finished') && room && (
         <RoomGameOverModal
           room={room}
-          currentUserId={currentUserId}
+          currentUserId={effectiveUserId}
           score={score}
           onBackToRoom={handleBackToRoomOrChangeMode}
           onBackToHome={onBackToHome}

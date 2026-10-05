@@ -34,7 +34,7 @@ export interface GameSession {
 
 export interface GuessRequest {
   sessionId?: string;
-  songId: number;
+  songId: string | number;
   stageIndex: number;
   attemptIndex: number;
   duration: number; // Hangi sürede bilindiği (0.1, 0.5, 2.0, 8.0)

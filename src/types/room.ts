@@ -8,6 +8,8 @@ export interface RoomParticipant {
   score: number;
   lastPointsEarned?: number;
   lastGuessDuration?: number;
+  lastGuessedRound?: number;
+  lastGuessedSongId?: string | number;
   joinedAt: string;
 }
 

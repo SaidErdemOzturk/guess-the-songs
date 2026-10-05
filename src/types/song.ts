@@ -4,7 +4,7 @@ export type EraFilter = 'all' | '2020s' | '2010s' | '2000s' | '90s';
 export type DifficultyLevel = 'easy' | 'medium' | 'hard' | 'expert' | 'impossible';
 
 export interface Song {
-  id: number;
+  id: string | number;
   title: string;
   artist: string;
   featuredArtists?: string[];
@@ -13,7 +13,7 @@ export interface Song {
   genre: 'pop' | 'rap' | 'rock' | 'electronic' | 'indie' | string; // Şarkı türü
   region: 'tr' | 'global'; // Bölge (Türkiye veya Global)
   difficulty: DifficultyLevel; // Zorluk derecesi (easy..impossible)
-  difficultyRank: 1 | 2 | 3 | 4 | 5; // Kademeli zorluk derecesi
+  difficultyRank: number
   startSecond: number; // Şarkının kesit başlangıç saniyesi
   duration: number; // Toplam süre (saniye)
   coverUrl?: string; // Albüm/şarkı kapağı görseli
