@@ -9,6 +9,7 @@ import {
 } from '@/features/game';
 import { RoomScoreboard } from '@/features/room/components/RoomScoreboard/RoomScoreboard';
 import { RoomGameOverModal } from '@/features/room/components/RoomGameOverModal/RoomGameOverModal';
+import { RoomChat } from '@/features/room/components/RoomChat/RoomChat';
 import { roomService } from '@/services/api/roomService';
 import { authService } from '@/services/api/authService';
 import { webAudioService } from '@/services/audio/webAudioService';
@@ -38,6 +39,11 @@ export const RoomGamePage: React.FC<RoomGamePageProps> = ({
   const hasGameStartedRef = useRef(false);
   const currentRoomCodeRef = useRef(roomCode);
   const isNavigatingBackRef = useRef(false);
+
+  const [sidebarTab, setSidebarTab] = useState<'scoreboard' | 'chat'>('scoreboard');
+  const [unreadChatCount, setUnreadChatCount] = useState<number>(0);
+  const sidebarTabRef = useRef(sidebarTab);
+  sidebarTabRef.current = sidebarTab;
 
   const effectiveUserId =
     currentUserId ||
@@ -90,11 +96,18 @@ export const RoomGamePage: React.FC<RoomGamePageProps> = ({
       }
     });
 
+    const unsubscribeChat = roomService.onChatMessage(roomCode, (newMsg) => {
+      if (sidebarTabRef.current !== 'chat' && String(newMsg.userId) !== String(effectiveUserId)) {
+        setUnreadChatCount((prev) => prev + 1);
+      }
+    });
+
     return () => {
       unsubscribe();
       unsubscribeKick();
+      unsubscribeChat();
     };
-  }, [roomCode, currentUserId, onBackToHome, onBackToRoom, room]);
+  }, [roomCode, currentUserId, effectiveUserId, onBackToHome, onBackToRoom, room]);
 
   const handleScoreUpdate = useCallback(() => {
     if (!roomCode) return;
@@ -306,16 +319,50 @@ export const RoomGamePage: React.FC<RoomGamePageProps> = ({
         </div>
       </div>
 
-      {/* Sağ Yan Panel: Canlı Skor Tablosu */}
+      {/* Sağ Yan Panel: Canlı Skor Tablosu ve Oda Sohbeti */}
       {room && (
         <div className={styles.sidebarArea}>
-          <RoomScoreboard
-            room={room}
-            currentUserId={effectiveUserId}
-            onKickParticipant={handleKickParticipant}
-            isCurrentUserGuessing={!isGuessLocked && !feedback?.isSuccess && !isSongRevealed && !isGameOver}
-            currentUserEarnedPoints={lastEarnedPoints}
-          />
+          <div className={styles.sidebarTabs}>
+            <button
+              type="button"
+              className={`${styles.sidebarTabBtn} ${sidebarTab === 'scoreboard' ? styles.sidebarTabBtnActive : ''}`}
+              onClick={() => setSidebarTab('scoreboard')}
+            >
+              🏆 Skor Tablosu
+            </button>
+            <button
+              type="button"
+              className={`${styles.sidebarTabBtn} ${sidebarTab === 'chat' ? styles.sidebarTabBtnActive : ''}`}
+              onClick={() => {
+                setSidebarTab('chat');
+                setUnreadChatCount(0);
+              }}
+            >
+              💬 Sohbet
+              {unreadChatCount > 0 && sidebarTab !== 'chat' && (
+                <span className={styles.unreadBadge}>{unreadChatCount}</span>
+              )}
+            </button>
+          </div>
+
+          {sidebarTab === 'scoreboard' ? (
+            <RoomScoreboard
+              room={room}
+              currentUserId={effectiveUserId}
+              onKickParticipant={handleKickParticipant}
+              isCurrentUserGuessing={!isGuessLocked && !feedback?.isSuccess && !isSongRevealed && !isGameOver}
+              currentUserEarnedPoints={lastEarnedPoints}
+            />
+          ) : (
+            <RoomChat
+              roomCode={room.code}
+              currentUserId={effectiveUserId || ''}
+              currentUserName={authService.getSession().user?.name}
+              currentUserAvatarUrl={authService.getSession().user?.avatarUrl}
+              isHost={room.hostId === effectiveUserId}
+              height="480px"
+            />
+          )}
         </div>
       )}
 

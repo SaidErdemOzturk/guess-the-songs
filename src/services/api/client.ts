@@ -80,6 +80,10 @@ class ApiClient {
       body: data ? JSON.stringify(data) : undefined,
     });
   }
+
+  public delete<T>(endpoint: string, options?: RequestOptions): Promise<T> {
+    return this.request<T>(endpoint, { ...options, method: 'DELETE' });
+  }
 }
 
 export const apiClient = new ApiClient(env.apiBaseUrl);

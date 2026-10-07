@@ -6,6 +6,7 @@ import { authService } from './authService';
 import type { User } from '@/types/auth';
 import type { CreateRoomRequest, Room, RoomParticipant, RoomSettings, RoomStatus } from '@/types/room';
 import type { Song } from '@/types/song';
+import type { ChatMessage } from '@/types/chat';
 
 const ROOMS_STORAGE_KEY = 'gts_active_rooms';
 
@@ -19,6 +20,7 @@ export interface RoomWebSocketMessage<T = unknown> {
   | 'PARTICIPANT_KICKED'
   | 'STATUS_CHANGED'
   | 'SONG_CHANGED'
+  | 'CHAT_MESSAGE'
   | 'PONG';
   roomCode?: string;
   data?: T;
@@ -28,6 +30,7 @@ export interface RoomWebSocketMessage<T = unknown> {
 type RoomSubscriptionCallback = (room: Room) => void;
 export type SongChangeCallback = (song: Song, round: number, endsAt?: string) => void;
 type ParticipantKickedCallback = (targetUserId: string, updatedRoom?: Room | null) => void;
+export type ChatMessageCallback = (message: ChatMessage) => void;
 
 /**
  * Sunucudan gelen ISO veya UTC tarih stringlerini (+03:00 / UTC farklarını gözeterek)
@@ -245,6 +248,7 @@ let pingIntervalId: any = null;
 const roomSubscribers = new Map<string, Set<RoomSubscriptionCallback>>();
 const songSubscribers = new Map<string, Set<SongChangeCallback>>();
 const kickedSubscribers = new Map<string, Set<ParticipantKickedCallback>>();
+const chatSubscribers = new Map<string, Set<ChatMessageCallback>>();
 
 // Çoklu sekme / yerel pencere senkronizasyonu için BroadcastChannel
 const syncChannel =
@@ -268,6 +272,19 @@ if (syncChannel) {
             cb(room);
           } catch (e) {
             console.error('[roomService] Channel sync callback error:', e);
+          }
+        });
+      }
+    } else if (event.data?.type === 'CHAT_SYNC' && event.data?.chatMessage) {
+      const cleanCode = (event.data.roomCode || '').toUpperCase().trim();
+      const chatMsg = event.data.chatMessage as ChatMessage;
+      const subscribers = chatSubscribers.get(cleanCode);
+      if (subscribers) {
+        subscribers.forEach((cb) => {
+          try {
+            cb(chatMsg);
+          } catch (e) {
+            console.error('[roomService] Channel chat sync error:', e);
           }
         });
       }
@@ -331,7 +348,11 @@ export const roomService = {
       set.delete(callback);
       if (set.size === 0) {
         roomSubscribers.delete(cleanCode);
-        if (currentConnectedCode === cleanCode && !songSubscribers.has(cleanCode)) {
+        if (
+          currentConnectedCode === cleanCode &&
+          !songSubscribers.has(cleanCode) &&
+          !chatSubscribers.has(cleanCode)
+        ) {
           this.disconnectWebSocket();
         }
       }
@@ -359,11 +380,97 @@ export const roomService = {
       set.delete(callback);
       if (set.size === 0) {
         songSubscribers.delete(cleanCode);
-        if (currentConnectedCode === cleanCode && !roomSubscribers.has(cleanCode)) {
+        if (
+          currentConnectedCode === cleanCode &&
+          !roomSubscribers.has(cleanCode) &&
+          !chatSubscribers.has(cleanCode)
+        ) {
           this.disconnectWebSocket();
         }
       }
     };
+  },
+
+  /**
+   * Odanın canlı sohbet mesajlarına abone olur.
+   */
+  onChatMessage(roomCode: string, callback: ChatMessageCallback): () => void {
+    const cleanCode = roomCode.toUpperCase().trim();
+    if (!chatSubscribers.has(cleanCode)) {
+      chatSubscribers.set(cleanCode, new Set());
+    }
+    const set = chatSubscribers.get(cleanCode)!;
+    set.add(callback);
+
+    const currentUser = authService.getSession().user;
+    if (!activeWebSocket || currentConnectedCode !== cleanCode) {
+      this.connectWebSocket(cleanCode, currentUser);
+    }
+
+    return () => {
+      set.delete(callback);
+      if (set.size === 0) {
+        chatSubscribers.delete(cleanCode);
+        if (
+          currentConnectedCode === cleanCode &&
+          !roomSubscribers.has(cleanCode) &&
+          !songSubscribers.has(cleanCode)
+        ) {
+          this.disconnectWebSocket();
+        }
+      }
+    };
+  },
+
+  /**
+   * WebSocket üzerinden doğrudan anlık mesaj gönderir
+   */
+  sendWebSocketChatMessage(
+    roomCode: string,
+    payload: { userId: string; userName?: string; userAvatarUrl?: string; message: string }
+  ): boolean {
+    const cleanCode = roomCode.toUpperCase().trim();
+    if (activeWebSocket && activeWebSocket.readyState === WebSocket.OPEN && currentConnectedCode === cleanCode) {
+      try {
+        activeWebSocket.send(
+          JSON.stringify({
+            type: 'CHAT_MESSAGE',
+            payload: {
+              roomCode: cleanCode,
+              ...payload,
+            },
+          })
+        );
+        return true;
+      } catch (err) {
+        console.warn('[roomService] Failed to send CHAT_MESSAGE via WebSocket:', err);
+      }
+    }
+    return false;
+  },
+
+  /**
+   * Yerel sekmeler arası sohbet mesajını dağıtır
+   */
+  broadcastChatLocally(roomCode: string, chatMessage: ChatMessage): void {
+    const cleanCode = roomCode.toUpperCase().trim();
+    if (syncChannel) {
+      try {
+        syncChannel.postMessage({ type: 'CHAT_SYNC', roomCode: cleanCode, chatMessage });
+      } catch {
+        // ignore
+      }
+    }
+    const subs = chatSubscribers.get(cleanCode);
+    if (subs) {
+      subs.forEach((cb) => {
+        try {
+          cb(chatMessage);
+        } catch (e) {
+          console.error('[roomService] Chat broadcast error:', e);
+        }
+      });
+    }
   },
 
   /**
@@ -577,6 +684,24 @@ export const roomService = {
                   console.error('[roomService] Kicked subscriber callback error:', e);
                 }
               });
+            }
+            return;
+          }
+
+          // Canlı Sohbet Mesajı Bildirimi
+          if (msg.type === 'CHAT_MESSAGE') {
+            const chatMsg = msg.data as ChatMessage;
+            if (chatMsg) {
+              const subs = chatSubscribers.get(cleanCode);
+              if (subs) {
+                subs.forEach((cb) => {
+                  try {
+                    cb(chatMsg);
+                  } catch (e) {
+                    console.error('[roomService] Chat subscriber callback error:', e);
+                  }
+                });
+              }
             }
             return;
           }

@@ -166,7 +166,6 @@ export const songService = {
 
     try {
       const youtubeSongs = await youtubeService.getPlaylistSongs(playlistId, {
-        limit: 50,
         region,
       });
 

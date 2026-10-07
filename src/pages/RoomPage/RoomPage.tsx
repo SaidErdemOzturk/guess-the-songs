@@ -3,6 +3,7 @@ import { useAuth } from "../../features/auth/context/AuthContext";
 import { roomService } from "../../services/api/roomService";
 import type { Room } from "../../types/room";
 import { RoomLobby } from "../../features/room/components/RoomLobby/RoomLobby";
+import { RoomChat } from "../../features/room/components/RoomChat/RoomChat";
 import styles from "./RoomPage.module.css";
 
 interface RoomPageProps {
@@ -187,12 +188,23 @@ export const RoomPage: React.FC<RoomPageProps> = ({
 
   return (
     <div className={styles.roomPageWrapper}>
-      <RoomLobby
-        room={room}
-        onStartGame={handleStartGame}
-        onLeaveRoom={handleLeave}
-        onKickParticipant={handleKickParticipant}
-      />
+      <div className={styles.roomLobbyArea}>
+        <RoomLobby
+          room={room}
+          onStartGame={handleStartGame}
+          onLeaveRoom={handleLeave}
+          onKickParticipant={handleKickParticipant}
+        />
+      </div>
+      <div className={styles.roomChatArea}>
+        <RoomChat
+          roomCode={room.code}
+          currentUserId={user?.id || ''}
+          currentUserName={user?.name}
+          currentUserAvatarUrl={user?.avatarUrl}
+          isHost={room.hostId === user?.id}
+        />
+      </div>
     </div>
   );
 };

@@ -6,4 +6,5 @@ export * from './auth';
 export * from './room';
 export * from './spotify';
 export * from './youtube';
+export * from './chat';
 

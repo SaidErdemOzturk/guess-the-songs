@@ -1,10 +1,38 @@
 .roomPageWrapper {
   width: 100%;
-  max-width: 900px;
+  max-width: 1200px;
   margin: 0 auto;
   padding: 1.5rem 1rem 3rem;
   display: flex;
   justify-content: center;
+  align-items: flex-start;
+  gap: 1.5rem;
+}
+
+.roomLobbyArea {
+  flex: 1;
+  max-width: 44rem;
+  width: 100%;
+}
+
+.roomChatArea {
+  width: 360px;
+  flex-shrink: 0;
+  position: sticky;
+  top: 1.5rem;
+}
+
+@media (max-width: 960px) {
+  .roomPageWrapper {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .roomChatArea {
+    width: 100%;
+    max-width: 44rem;
+    position: static;
+  }
 }
 
 .loadingContainer,

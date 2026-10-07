@@ -60,5 +60,14 @@ export const ENDPOINTS = {
     GET_BY_EMAIL: (email: string) => `/api/users/getuserdtobyemail?email=${encodeURIComponent(email)}`,
     GET_CLAIMS: (id: number) => `/api/users/getclaims?id=${id}`,
   },
+
+  // Oda İçi Mesajlaşma (MessagesController)
+  MESSAGES: {
+    SEND: '/api/messages/send',
+    GET_BY_ROOM: (roomCode: string) => `/api/messages/getbyroom?roomCode=${encodeURIComponent(roomCode)}`,
+    GET_BY_CODE: (code: string) => `/api/messages/getbycode?code=${encodeURIComponent(code)}`,
+    ROOM: (roomCode: string) => `/api/messages/room/${encodeURIComponent(roomCode)}`,
+    CLEAR: (roomCode: string, hostId: string) => `/api/messages/clear?roomCode=${encodeURIComponent(roomCode)}&hostId=${encodeURIComponent(hostId)}`,
+  },
 } as const;
 

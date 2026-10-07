@@ -69,8 +69,8 @@ export const RoomLobby: React.FC<RoomLobbyProps> = ({
     <div
       style={{
         width: '100%',
-        maxWidth: '38rem',
-        margin: '1.5rem auto',
+        maxWidth: '100%',
+        margin: '0 auto',
         display: 'flex',
         flexDirection: 'column',
         gap: '1.5rem',
