@@ -64,8 +64,8 @@ export const songService = {
         this.stagePlaylists[idx] = results[i] || [];
       });
 
-      // Bütün playlistleri birleştir ve mükerrerleri ayıkla
-      const allSongs = results.flat();
+      // Bütün playlistleri birleştir ve mükerrerleri ayıkla (varsa önceden eklenen parçaları da koru)
+      const allSongs = [...this.combinedPool, ...results.flat()];
       const map = new Map<string, Song>();
       for (const song of allSongs) {
         const key = song.youtubeId || `${song.artist.toLowerCase()} - ${song.title.toLowerCase()}`;
@@ -87,6 +87,30 @@ export const songService = {
       console.warn('⚠️ [SongService] initializeGamePlaylists hatası:', err);
     }
     return this.combinedPool;
+  },
+
+  /**
+   * Özel veya harici çalma listesinden gelen şarkıları arama ve eşleşme havuzuna (combinedPool) dahil eder.
+   * Mevcut listeleri silmeden üzerine ekler.
+   */
+  registerCustomPlaylistSongs(newSongs: Song[]): void {
+    if (!newSongs || newSongs.length === 0) return;
+    const map = new Map<string, Song>();
+    for (const song of this.combinedPool) {
+      const key = song.youtubeId || `${song.artist.toLowerCase()} - ${song.title.toLowerCase()}`;
+      map.set(key, song);
+    }
+    for (const song of newSongs) {
+      const key = song.youtubeId || `${song.artist.toLowerCase()} - ${song.title.toLowerCase()}`;
+      if (!map.has(key)) {
+        map.set(key, song);
+      }
+    }
+    this.combinedPool = Array.from(map.values());
+    youtubeService.registerKnownSongs(this.combinedPool);
+    console.log(
+      `🎵 [SongService] ${newSongs.length} adet yeni çalma listesi parçası arama havuzuna dahil edildi. Toplam birleşik havuz: ${this.combinedPool.length}`
+    );
   },
 
   /**

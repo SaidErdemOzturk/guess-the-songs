@@ -15,7 +15,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   onSuccessLogin,
   onContinueAsGuest,
 }) => {
-  const { login, register, resetPassword, continueAsGuest, isLoading } = useAuth();
+  const { login, register, resetPassword, continueAsGuest, isLoading } =
+    useAuth();
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -106,7 +107,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         email: email.trim(),
         newPassword,
       });
-      setSuccessMessage(msg || "Şifreniz başarıyla güncellendi. Giriş yapabilirsiniz.");
+      setSuccessMessage(
+        msg || "Şifreniz başarıyla güncellendi. Giriş yapabilirsiniz.",
+      );
       setPassword(newPassword);
       setNewPassword("");
       setConfirmPassword("");
@@ -116,12 +119,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     }
   };
 
-  const handleQuickDemoLogin = async (demoEmail: string) => {
+  const handleQuickDemoLogin = async (demoEmail: string, demoPass: string) => {
+    setPassword(demoPass);
     setEmail(demoEmail);
     try {
       setError(null);
       setSuccessMessage(null);
-      await login({ email: demoEmail });
+      await login({ email: demoEmail, password: demoPass });
       onSuccessLogin();
     } catch (err: any) {
       setError(err?.message || "Giriş yapılırken bir hata oluştu.");
@@ -170,12 +174,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               fontSize: "0.875rem",
               fontWeight: authMode === "login" ? 700 : 500,
               color: authMode === "login" ? "#ffffff" : "#9ca3af",
-              backgroundColor: authMode === "login"
-                ? "rgba(99, 102, 241, 0.4)"
-                : "transparent",
-              border: authMode === "login"
-                ? "1px solid rgba(129, 140, 248, 0.4)"
-                : "1px solid transparent",
+              backgroundColor:
+                authMode === "login"
+                  ? "rgba(99, 102, 241, 0.4)"
+                  : "transparent",
+              border:
+                authMode === "login"
+                  ? "1px solid rgba(129, 140, 248, 0.4)"
+                  : "1px solid transparent",
               borderRadius: "var(--radius-sm)",
               cursor: "pointer",
               transition: "all 0.2s ease",
@@ -196,12 +202,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               fontSize: "0.875rem",
               fontWeight: authMode === "register" ? 700 : 500,
               color: authMode === "register" ? "#ffffff" : "#9ca3af",
-              backgroundColor: authMode === "register"
-                ? "rgba(99, 102, 241, 0.4)"
-                : "transparent",
-              border: authMode === "register"
-                ? "1px solid rgba(129, 140, 248, 0.4)"
-                : "1px solid transparent",
+              backgroundColor:
+                authMode === "register"
+                  ? "rgba(99, 102, 241, 0.4)"
+                  : "transparent",
+              border:
+                authMode === "register"
+                  ? "1px solid rgba(129, 140, 248, 0.4)"
+                  : "1px solid transparent",
               borderRadius: "var(--radius-sm)",
               cursor: "pointer",
               transition: "all 0.2s ease",
@@ -220,10 +228,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             {authMode === "forgot-password"
               ? "Şifremi Unuttum"
               : authMode === "register"
-              ? "Yeni Hesap Oluştur"
-              : pendingInviteRoomCode
-              ? "Odaya Katılmak İçin Giriş Yap"
-              : "Giriş Yap"}
+                ? "Yeni Hesap Oluştur"
+                : pendingInviteRoomCode
+                  ? "Odaya Katılmak İçin Giriş Yap"
+                  : "Giriş Yap"}
           </h2>
           <p
             style={{
@@ -525,7 +533,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             >
               <button
                 type="button"
-                onClick={() => handleQuickDemoLogin("ahmet@muzik.com")}
+                onClick={() =>
+                  handleQuickDemoLogin("ahmet@muzik.com", "123456789")
+                }
                 style={{
                   fontSize: "0.75rem",
                   padding: "0.25rem 0.6rem",
@@ -540,7 +550,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => handleQuickDemoLogin("zeynep@muzik.com")}
+                onClick={() =>
+                  handleQuickDemoLogin("zeynep@muzik.com", "123456789")
+                }
                 style={{
                   fontSize: "0.75rem",
                   padding: "0.25rem 0.6rem",

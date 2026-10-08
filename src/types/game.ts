@@ -20,6 +20,9 @@ export interface CreateGameSessionRequest {
   guessTimeLimitMinutes?: number;
   gameMode?: GameMode;
   songCount?: number;
+  playlistId?: string;
+  playlistUrl?: string;
+  customSongs?: Song[];
 }
 
 export interface GameSession {

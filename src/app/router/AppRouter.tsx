@@ -136,6 +136,7 @@ export const AppRouter: React.FC = () => {
       onCreateRoomClick={handleOpenCreateRoom}
       onPlaylistViewerClick={() => setIsPlaylistModalOpen(true)}
       maxWidth={getContentMaxWidth()}
+      justifyContent={viewMode === 'login' ? 'center' : 'flex-start'}
     >
       {viewMode === 'login' && (
         <LoginPage
@@ -201,7 +202,20 @@ export const AppRouter: React.FC = () => {
           }}
         >
           <div style={{ width: '100%', maxWidth: '46rem' }}>
-            <PlaylistViewer onClose={() => setIsPlaylistModalOpen(false)} />
+            <PlaylistViewer
+              onClose={() => setIsPlaylistModalOpen(false)}
+              onStartGame={(params) => {
+                setIsPlaylistModalOpen(false);
+                if (activeRoomCode) {
+                  setActiveRoomCode(null);
+                  const url = new URL(window.location.href);
+                  url.searchParams.delete('room');
+                  url.searchParams.delete('invite');
+                  window.history.replaceState({}, '', url.pathname);
+                }
+                handleStartGame(params);
+              }}
+            />
           </div>
         </div>
       )}

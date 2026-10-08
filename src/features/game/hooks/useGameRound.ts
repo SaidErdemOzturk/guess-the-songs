@@ -225,13 +225,7 @@ export function useGameRound(options?: UseGameRoundOptions) {
           .then((customSongs) => {
             if (customSongs.length > 0) {
               customPlaylistSongsRef.current = customSongs;
-              youtubeService.registerKnownSongs(customSongs);
-              songService.combinedPool = [...customSongs, ...songService.combinedPool];
-              const uniqueMap = new Map<string | number, Song>();
-              for (const s of songService.combinedPool) {
-                if (!uniqueMap.has(s.id)) uniqueMap.set(s.id, s);
-              }
-              songService.combinedPool = Array.from(uniqueMap.values());
+              songService.registerCustomPlaylistSongs(customSongs);
             }
           })
           .catch((err) => {
@@ -362,9 +356,21 @@ export function useGameRound(options?: UseGameRoundOptions) {
       const mode = roomObj?.settings?.gameMode || params.gameMode || 'short';
       setGameMode(mode);
 
-      const targetSongCount = mode === 'long' ? (roomObj?.settings?.songCount || params.songCount || 10) : 3;
-      let activeStages: GameStage[] = STAGES;
+      const maxCustomSongs = params.customSongs?.length;
+      let targetSongCount = 3;
       if (mode === 'long') {
+        targetSongCount = roomObj?.settings?.songCount || params.songCount || 10;
+        if (maxCustomSongs && maxCustomSongs > 0) {
+          targetSongCount = Math.min(targetSongCount, maxCustomSongs);
+        }
+      } else {
+        if (maxCustomSongs && maxCustomSongs > 0 && maxCustomSongs < 3) {
+          targetSongCount = maxCustomSongs;
+        }
+      }
+
+      let activeStages: GameStage[] = STAGES;
+      if (mode === 'long' || (maxCustomSongs && maxCustomSongs < 3)) {
         activeStages = Array.from({ length: targetSongCount }, (_, i) => ({
           stage: i + 1,
           name: `Şarkı ${i + 1}`,
@@ -396,35 +402,34 @@ export function useGameRound(options?: UseGameRoundOptions) {
       // 1. Sabit listemizin içeriği mutlaka yüklensin (Şarkı tahmini listesinde sabit liste her zaman bulunur)
       await songService.initializeGamePlaylists(chosenRegion);
 
-      // 2. Özel playlist eklendiyse bu listeyi çek, arama havuzuna dahil et ve aktif çalma listesi yap
-      const customPlaylistId = roomObj?.settings?.playlistId;
-      if (customPlaylistId) {
-        console.log(`🎶 [GameRound] Oda özel çalma listesi yükleniyor: ${customPlaylistId}`);
-        try {
-          const customSongs = await youtubeService.getPlaylistSongs(customPlaylistId, {
-            limit: 100,
-            region: chosenRegion,
-          });
+      // 2. Özel playlist / şarkılar eklendiyse bu listeyi havuzlara dahil et ve aktif çalma listesi yap
+      if (params.customSongs && params.customSongs.length > 0) {
+        console.log(`🎶 [GameRound] Özel şarkı listesi aktarılıyor: ${params.customSongs.length} şarkı`);
+        customPlaylistSongsRef.current = params.customSongs;
+        songService.registerCustomPlaylistSongs(params.customSongs);
+      } else {
+        const customPlaylistId = roomObj?.settings?.playlistId || params.playlistId;
+        if (customPlaylistId) {
+          console.log(`🎶 [GameRound] Özel çalma listesi yükleniyor: ${customPlaylistId}`);
+          try {
+            const customSongs = await youtubeService.getPlaylistSongs(customPlaylistId, {
+              limit: 100,
+              region: chosenRegion,
+            });
 
-          if (customSongs.length > 0) {
-            customPlaylistSongsRef.current = customSongs;
-            youtubeService.registerKnownSongs(customSongs);
-            // Şarkı tahmini listesinde yine sabit listemizin içeriği de olsun. Özel liste eklenirse bu liste içerisindeki de dahil edilsin.
-            songService.combinedPool = [...customSongs, ...songService.combinedPool];
-            const uniqueMap = new Map<string | number, Song>();
-            for (const s of songService.combinedPool) {
-              if (!uniqueMap.has(s.id)) uniqueMap.set(s.id, s);
+            if (customSongs.length > 0) {
+              customPlaylistSongsRef.current = customSongs;
+              songService.registerCustomPlaylistSongs(customSongs);
+            } else {
+              customPlaylistSongsRef.current = [];
             }
-            songService.combinedPool = Array.from(uniqueMap.values());
-          } else {
+          } catch (err) {
+            console.warn('⚠️ [GameRound] Özel playlist yüklenemedi:', err);
             customPlaylistSongsRef.current = [];
           }
-        } catch (err) {
-          console.warn('⚠️ [GameRound] Özel playlist yüklenemedi:', err);
+        } else {
           customPlaylistSongsRef.current = [];
         }
-      } else {
-        customPlaylistSongsRef.current = [];
       }
 
       // 3. İlk şarkıyı seç

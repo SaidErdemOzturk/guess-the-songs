@@ -6,6 +6,7 @@ import {
 import { youtubePlayerService } from "@/services/audio/youtubePlayerService";
 import { songService } from "@/services/api/songService";
 import type { Song as AppSong } from "@/types/song";
+import type { CreateGameSessionRequest } from "@/types/game";
 import styles from "./PlaylistViewer.module.css";
 
 export interface PlaylistSong {
@@ -15,23 +16,76 @@ export interface PlaylistSong {
   lengthSeconds: number;
 }
 
+export type GameModeOption = "short" | "long-10" | "long-all" | "custom";
+
 interface PlaylistViewerProps {
   onClose?: () => void;
-  onSongsImported?: (songs: PlaylistSong[]) => void;
+  onStartGame?: (params: CreateGameSessionRequest) => void;
 }
 
 export function PlaylistViewer({
   onClose,
-  onSongsImported,
+  onStartGame,
 }: PlaylistViewerProps) {
   const [playlistId, setPlaylistId] = useState("");
   const [songs, setSongs] = useState<PlaylistSong[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [previewingVideoId, setPreviewingVideoId] = useState<string | null>(
-    null,
-  );
-  const [importedSuccess, setImportedSuccess] = useState(false);
+  const [previewingVideoId, setPreviewingVideoId] = useState<string | null>(null);
+
+  // Oyun modu ve şarkı sayısı seçimi
+  const [selectedModeOption, setSelectedModeOption] = useState<GameModeOption>("short");
+  const [customSongCount, setCustomSongCount] = useState<number>(5);
+
+  const mapToAppSongs = (rawSongs: PlaylistSong[]): AppSong[] => {
+    return rawSongs.map((s, idx) => {
+      let artist = s.author;
+      let title = s.title;
+
+      if (s.title.includes(" - ")) {
+        const parts = s.title.split(" - ");
+        artist = parts[0].trim();
+        title = parts.slice(1).join(" - ").trim();
+      }
+
+      title = title
+        .replace(
+          /\s*[([].*?(official|video|klip|audio|lyrics|hd|4k|remaster|visualizer).*?[)\]]/gi,
+          "",
+        )
+        .trim();
+      title = title.replace(/\s*\|\s*.*$/i, "").trim();
+
+      return {
+        id: Date.now() + idx,
+        title: title || s.title,
+        artist: artist || s.author,
+        year: 2024,
+        genre: "pop",
+        region: "tr",
+        difficulty: "easy",
+        difficultyRank: 1,
+        startSecond: 0,
+        duration: s.lengthSeconds || 30,
+        coverUrl: `https://img.youtube.com/vi/${s.videoId}/hqdefault.jpg`,
+        youtubeId: s.videoId,
+      };
+    });
+  };
+
+  const getEffectiveSongCount = (): number => {
+    if (songs.length === 0) return 0;
+    switch (selectedModeOption) {
+      case "short":
+        return Math.min(3, songs.length);
+      case "long-10":
+        return Math.min(10, songs.length);
+      case "long-all":
+        return songs.length;
+      case "custom":
+        return Math.min(Math.max(1, customSongCount), songs.length);
+    }
+  };
 
   const fetchPlaylist = async (targetId?: string) => {
     const rawId = (targetId || playlistId).trim();
@@ -39,7 +93,6 @@ export function PlaylistViewer({
 
     setLoading(true);
     setError("");
-    setImportedSuccess(false);
 
     // YouTube playlist ID'sini temizleme (URL girilirse sadece ID kısmını alma)
     let cleanId = rawId;
@@ -94,6 +147,15 @@ export function PlaylistViewer({
       );
 
       setSongs(fetchedSongs);
+
+      // Yeni gelen listeyi otomatik olarak arama ve eşleşme havuzuna dahil et
+      const mappedSongs = mapToAppSongs(fetchedSongs);
+      songService.registerCustomPlaylistSongs(mappedSongs);
+
+      // Özel şarkı sayısı için varsayılanı ayarla
+      if (fetchedSongs.length > 0) {
+        setCustomSongCount(Math.min(5, fetchedSongs.length));
+      }
     } catch (err: any) {
       setError(err.message || "Veri çekilirken bir hata oluştu");
     } finally {
@@ -118,50 +180,35 @@ export function PlaylistViewer({
     }
   };
 
-  const handleImportToGame = () => {
+
+  const handleStartGame = () => {
     if (songs.length === 0) return;
 
-    const mappedToAppSongs: AppSong[] = songs.map((s, idx) => {
-      let artist = s.author;
-      let title = s.title;
+    const mappedSongs = mapToAppSongs(songs);
+    // Arama havuzuna hem mevcut parçaların hem de bu listenin dahil olduğundan emin ol
+    songService.registerCustomPlaylistSongs(mappedSongs);
 
-      if (s.title.includes(" - ")) {
-        const parts = s.title.split(" - ");
-        artist = parts[0].trim();
-        title = parts.slice(1).join(" - ").trim();
-      }
+    let cleanId = playlistId.trim();
+    if (cleanId.includes("list=")) {
+      cleanId = cleanId.split("list=")[1].split("&")[0];
+    } else {
+      cleanId = extractPlaylistId(cleanId);
+    }
 
-      title = title
-        .replace(
-          /\s*[([].*?(official|video|klip|audio|lyrics|hd|4k|remaster|visualizer).*?[)\]]/gi,
-          "",
-        )
-        .trim();
-      title = title.replace(/\s*\|\s*.*$/i, "").trim();
+    const count = getEffectiveSongCount();
+    const isShort = selectedModeOption === "short";
 
-      return {
-        id: Date.now() + idx,
-        title: title || s.title,
-        artist: artist || s.author,
-        year: 2024,
-        genre: "pop",
-        region: "tr",
-        difficulty: "easy",
-        difficultyRank: 1,
-        startSecond: 0,
-        duration: s.lengthSeconds || 30,
-        coverUrl: `https://img.youtube.com/vi/${s.videoId}/hqdefault.jpg`,
-        youtubeId: s.videoId,
-      };
-    });
+    const sessionParams: CreateGameSessionRequest = {
+      region: "tr",
+      genre: "all",
+      era: "all",
+      gameMode: isShort ? "short" : "long",
+      songCount: count,
+      playlistId: cleanId,
+      customSongs: mappedSongs,
+    };
 
-    youtubeService.registerKnownSongs(mappedToAppSongs);
-    songService.combinedPool = [
-      ...mappedToAppSongs,
-      ...songService.combinedPool,
-    ];
-    setImportedSuccess(true);
-    onSongsImported?.(songs);
+    onStartGame?.(sessionParams);
   };
 
   const formatDuration = (seconds: number) => {
@@ -183,11 +230,9 @@ export function PlaylistViewer({
         <div>
           <h2 className={styles.title}>
             <span className={styles.icon}>🎵</span> YouTube Çalma Listesi Çekici
-            (Tokensiz)
           </h2>
           <p className={styles.subtitle}>
-            Invidious REST API üzerinden doğrudan, API anahtarı gerekmeden
-            YouTube çalma listesi verilerini çeker.
+            Çalma listenizi getirin, parçaları tahmin havuzuna dahil edin ve doğrudan bu listeyle oyuna başlayın!
           </p>
         </div>
         {onClose && (
@@ -249,28 +294,113 @@ export function PlaylistViewer({
         </div>
       )}
 
-      {/* Başarı Bildirimi */}
-      {importedSuccess && (
-        <div className={styles.successBox}>
-          <i className="fa-solid fa-circle-check" /> {songs.length} şarkı oyun
-          havuzuna başarıyla aktarıldı!
+
+      {/* Şarkılar Çekildikten Sonra: Oyun Modu Seçimi ve Oyunu Başlat Paneli */}
+      {songs.length > 0 && (
+        <div className={styles.gameStartCard}>
+          <div className={styles.gameStartHeader}>
+            <div className={styles.gameStartTitle}>
+              <i className="fa-solid fa-gamepad" />
+              <span>Bu Liste İle Oyunu Başlat</span>
+            </div>
+            <span className={styles.gameStartBadge}>
+              {songs.length} Şarkı Hazır
+            </span>
+          </div>
+
+          <p className={styles.gameStartNotice}>
+            <i className="fa-solid fa-circle-info" /> Oyundaki sorular yalnızca bu playlist içinden seçilir. Şarkı ararken hem oyunun mevcut kataloğu hem de bu liste birlikte aranır.
+          </p>
+
+          <div className={styles.modeSection}>
+            <span className={styles.modeSectionLabel}>Oyun Modu:</span>
+            <div className={styles.modeGrid}>
+              <button
+                type="button"
+                className={`${styles.modeCard} ${selectedModeOption === "short" ? styles.modeCardActive : ""}`}
+                onClick={() => setSelectedModeOption("short")}
+              >
+                <div className={styles.modeCardHeader}>
+                  <i className="fa-solid fa-bolt" />
+                  <span className={styles.modeCardTitle}>Standart</span>
+                </div>
+                <span className={styles.modeCardDesc}>3 Şarkı (Hızlı Mod)</span>
+              </button>
+
+              <button
+                type="button"
+                className={`${styles.modeCard} ${selectedModeOption === "long-10" ? styles.modeCardActive : ""}`}
+                onClick={() => setSelectedModeOption("long-10")}
+              >
+                <div className={styles.modeCardHeader}>
+                  <i className="fa-solid fa-fire" />
+                  <span className={styles.modeCardTitle}>Uzun Mod</span>
+                </div>
+                <span className={styles.modeCardDesc}>10 Şarkı</span>
+              </button>
+
+              <button
+                type="button"
+                className={`${styles.modeCard} ${selectedModeOption === "long-all" ? styles.modeCardActive : ""}`}
+                onClick={() => setSelectedModeOption("long-all")}
+              >
+                <div className={styles.modeCardHeader}>
+                  <i className="fa-solid fa-layer-group" />
+                  <span className={styles.modeCardTitle}>Tüm Liste</span>
+                </div>
+                <span className={styles.modeCardDesc}>{songs.length} Şarkının Tümü</span>
+              </button>
+
+              <button
+                type="button"
+                className={`${styles.modeCard} ${selectedModeOption === "custom" ? styles.modeCardActive : ""}`}
+                onClick={() => setSelectedModeOption("custom")}
+              >
+                <div className={styles.modeCardHeader}>
+                  <i className="fa-solid fa-sliders" />
+                  <span className={styles.modeCardTitle}>Özel Adet</span>
+                </div>
+                <span className={styles.modeCardDesc}>{customSongCount} Şarkı</span>
+              </button>
+            </div>
+
+            {selectedModeOption === "custom" && (
+              <div className={styles.customSliderBox}>
+                <div className={styles.customSliderRow}>
+                  <span className={styles.sliderLabel}>Soru Sayısı:</span>
+                  <input
+                    type="range"
+                    min="1"
+                    max={Math.max(1, songs.length)}
+                    value={customSongCount}
+                    onChange={(e) => setCustomSongCount(Number(e.target.value))}
+                    className={styles.rangeInput}
+                  />
+                  <span className={styles.sliderValue}>{customSongCount} Şarkı</span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className={styles.gameStartActions}>
+            <button
+              type="button"
+              className={styles.startGameBtn}
+              onClick={handleStartGame}
+            >
+              <i className="fa-solid fa-play" />
+              <span>Oyunu Başlat ({getEffectiveSongCount()} Şarkı)</span>
+            </button>
+          </div>
         </div>
       )}
 
-      {/* Liste Üst Bilgi ve Eylemler */}
+      {/* Liste Üst Bilgi */}
       {songs.length > 0 && (
         <div className={styles.statsBar}>
           <span className={styles.songCountBadge}>
             <i className="fa-solid fa-music" /> {songs.length} Şarkı Bulundu
           </span>
-          <button
-            onClick={handleImportToGame}
-            className={styles.importBtn}
-            title="Şarkıları oyun ve tahmin havuzuna ekler"
-          >
-            <i className="fa-solid fa-plus-circle" /> Şarkıları Oyun Havuzuna
-            Aktar
-          </button>
         </div>
       )}
 

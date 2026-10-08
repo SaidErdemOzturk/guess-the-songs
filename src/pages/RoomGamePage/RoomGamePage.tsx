@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   AudioPlayer,
   GuessInput,
@@ -6,17 +6,17 @@ import {
   AttemptDots,
   YouTubeEmbed,
   useGameRound,
-} from '@/features/game';
-import { RoomScoreboard } from '@/features/room/components/RoomScoreboard/RoomScoreboard';
-import { RoomGameOverModal } from '@/features/room/components/RoomGameOverModal/RoomGameOverModal';
-import { RoomChat } from '@/features/room/components/RoomChat/RoomChat';
-import { roomService } from '@/services/api/roomService';
-import { authService } from '@/services/api/authService';
-import { webAudioService } from '@/services/audio/webAudioService';
-import { getAttemptSkipAdd, STAGES } from '@/constants/game';
-import type { CreateGameSessionRequest } from '@/types/game';
-import type { Room } from '@/types/room';
-import styles from './RoomGamePage.module.css';
+} from "@/features/game";
+import { RoomScoreboard } from "@/features/room/components/RoomScoreboard/RoomScoreboard";
+import { RoomGameOverModal } from "@/features/room/components/RoomGameOverModal/RoomGameOverModal";
+import { RoomChat } from "@/features/room/components/RoomChat/RoomChat";
+import { roomService } from "@/services/api/roomService";
+import { authService } from "@/services/api/authService";
+import { webAudioService } from "@/services/audio/webAudioService";
+import { getAttemptSkipAdd, STAGES } from "@/constants/game";
+import type { CreateGameSessionRequest } from "@/types/game";
+import type { Room } from "@/types/room";
+import styles from "./RoomGamePage.module.css";
 
 interface RoomGamePageProps {
   sessionParams: CreateGameSessionRequest;
@@ -40,7 +40,9 @@ export const RoomGamePage: React.FC<RoomGamePageProps> = ({
   const currentRoomCodeRef = useRef(roomCode);
   const isNavigatingBackRef = useRef(false);
 
-  const [sidebarTab, setSidebarTab] = useState<'scoreboard' | 'chat'>('scoreboard');
+  const [sidebarTab, setSidebarTab] = useState<"scoreboard" | "chat">(
+    "scoreboard",
+  );
   const [unreadChatCount, setUnreadChatCount] = useState<number>(0);
   const sidebarTabRef = useRef(sidebarTab);
   sidebarTabRef.current = sidebarTab;
@@ -49,7 +51,9 @@ export const RoomGamePage: React.FC<RoomGamePageProps> = ({
     currentUserId ||
     authService.getSession().user?.id ||
     (room?.participants && authService.getSession().user?.email
-      ? room.participants.find((p) => p.user.email === authService.getSession().user?.email)?.user.id
+      ? room.participants.find(
+          (p) => p.user.email === authService.getSession().user?.email,
+        )?.user.id
       : undefined);
 
   useEffect(() => {
@@ -77,7 +81,7 @@ export const RoomGamePage: React.FC<RoomGamePageProps> = ({
 
     const unsubscribe = roomService.subscribeToRoom(roomCode, (updatedRoom) => {
       setRoom(updatedRoom);
-      if (updatedRoom.status === 'waiting') {
+      if (updatedRoom.status === "waiting") {
         if (isNavigatingBackRef.current) return;
         isNavigatingBackRef.current = true;
         webAudioService.stopCurrentAudio();
@@ -89,15 +93,21 @@ export const RoomGamePage: React.FC<RoomGamePageProps> = ({
       }
     });
 
-    const unsubscribeKick = roomService.onParticipantKicked(roomCode, (targetUserId) => {
-      if (currentUserId && String(targetUserId) === String(currentUserId)) {
-        alert('Oda sahibi tarafından oyundan/odadan çıkarıldınız.');
-        onBackToHome();
-      }
-    });
+    const unsubscribeKick = roomService.onParticipantKicked(
+      roomCode,
+      (targetUserId) => {
+        if (currentUserId && String(targetUserId) === String(currentUserId)) {
+          alert("Oda sahibi tarafından oyundan/odadan çıkarıldınız.");
+          onBackToHome();
+        }
+      },
+    );
 
     const unsubscribeChat = roomService.onChatMessage(roomCode, (newMsg) => {
-      if (sidebarTabRef.current !== 'chat' && String(newMsg.userId) !== String(effectiveUserId)) {
+      if (
+        sidebarTabRef.current !== "chat" &&
+        String(newMsg.userId) !== String(effectiveUserId)
+      ) {
         setUnreadChatCount((prev) => prev + 1);
       }
     });
@@ -107,7 +117,14 @@ export const RoomGamePage: React.FC<RoomGamePageProps> = ({
       unsubscribeKick();
       unsubscribeChat();
     };
-  }, [roomCode, currentUserId, effectiveUserId, onBackToHome, onBackToRoom, room]);
+  }, [
+    roomCode,
+    currentUserId,
+    effectiveUserId,
+    onBackToHome,
+    onBackToRoom,
+    room,
+  ]);
 
   const handleScoreUpdate = useCallback(() => {
     if (!roomCode) return;
@@ -118,7 +135,6 @@ export const RoomGamePage: React.FC<RoomGamePageProps> = ({
     }
   }, [roomCode]);
 
-
   const roomGuessLimit =
     room?.guessTimeLimitMinutes ||
     room?.settings?.guessTimeLimitMinutes ||
@@ -127,12 +143,16 @@ export const RoomGamePage: React.FC<RoomGamePageProps> = ({
 
   const isHost = Boolean(
     currentUserId &&
-      ((room &&
-        (String(room.hostId) === String(currentUserId) ||
-          room.participants?.find((p) => String(p.user.id) === String(currentUserId))?.isHost)) ||
-        (initialRoom &&
-          (String(initialRoom.hostId) === String(currentUserId) ||
-            initialRoom.participants?.find((p) => String(p.user.id) === String(currentUserId))?.isHost)))
+    ((room &&
+      (String(room.hostId) === String(currentUserId) ||
+        room.participants?.find(
+          (p) => String(p.user.id) === String(currentUserId),
+        )?.isHost)) ||
+      (initialRoom &&
+        (String(initialRoom.hostId) === String(currentUserId) ||
+          initialRoom.participants?.find(
+            (p) => String(p.user.id) === String(currentUserId),
+          )?.isHost))),
   );
 
   const {
@@ -186,7 +206,7 @@ export const RoomGamePage: React.FC<RoomGamePageProps> = ({
   const totalParticipants = room?.participants?.length || 0;
   const finishedParticipants =
     room?.participants?.filter(
-      (p) => p.lastPointsEarned !== null && p.lastPointsEarned !== undefined
+      (p) => p.lastPointsEarned !== null && p.lastPointsEarned !== undefined,
     ).length || 0;
 
   const allParticipantsGuessed =
@@ -202,7 +222,11 @@ export const RoomGamePage: React.FC<RoomGamePageProps> = ({
 
   const handleKickParticipant = async (targetUserId: string) => {
     if (!roomCode || !currentUserId) return;
-    const updated = await roomService.kickParticipant(roomCode, currentUserId, targetUserId);
+    const updated = await roomService.kickParticipant(
+      roomCode,
+      currentUserId,
+      targetUserId,
+    );
     setRoom({ ...updated });
   };
 
@@ -213,9 +237,12 @@ export const RoomGamePage: React.FC<RoomGamePageProps> = ({
     webAudioService.stopCurrentAudio();
     if (roomCode) {
       try {
-        await roomService.changeRoomStatus(roomCode, 'waiting');
+        await roomService.changeRoomStatus(roomCode, "waiting");
       } catch (err) {
-        console.warn('[RoomGamePage] Failed to change room status to waiting:', err);
+        console.warn(
+          "[RoomGamePage] Failed to change room status to waiting:",
+          err,
+        );
       }
     }
     if (onBackToRoom) {
@@ -239,7 +266,7 @@ export const RoomGamePage: React.FC<RoomGamePageProps> = ({
               lastGuessedSongId: undefined,
             })),
           }
-        : null
+        : null,
     );
     await goToNextSong();
   }, [goToNextSong]);
@@ -287,7 +314,9 @@ export const RoomGamePage: React.FC<RoomGamePageProps> = ({
 
         {/* Şarkı Bildirildiğinde YouTube Embed Oynatıcı */}
         {currentSong?.youtubeId && isSongRevealed && (
-          <div style={{ width: '100%', maxWidth: '580px', margin: '0.5rem auto' }}>
+          <div
+            style={{ width: "100%", maxWidth: "580px", margin: "0.5rem auto" }}
+          >
             <YouTubeEmbed
               youtubeId={currentSong.youtubeId}
               songTitle={`${currentSong.artist} - ${currentSong.title}`}
@@ -298,10 +327,10 @@ export const RoomGamePage: React.FC<RoomGamePageProps> = ({
         {/* Alt Kısım: Tahmin & Deneme Alanı */}
         <div
           style={{
-            width: '100%',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
+            width: "100%",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
           }}
         >
           <GuessInput
@@ -312,7 +341,7 @@ export const RoomGamePage: React.FC<RoomGamePageProps> = ({
             skipLabel={
               getAttemptSkipAdd(currentAttemptIndex)
                 ? `Geç ${getAttemptSkipAdd(currentAttemptIndex)}`
-                : 'Pes Et'
+                : "Pes Et"
             }
           />
           <AttemptDots currentAttemptIndex={currentAttemptIndex} />
@@ -325,49 +354,54 @@ export const RoomGamePage: React.FC<RoomGamePageProps> = ({
           <div className={styles.sidebarTabs}>
             <button
               type="button"
-              className={`${styles.sidebarTabBtn} ${sidebarTab === 'scoreboard' ? styles.sidebarTabBtnActive : ''}`}
-              onClick={() => setSidebarTab('scoreboard')}
+              className={`${styles.sidebarTabBtn} ${sidebarTab === "scoreboard" ? styles.sidebarTabBtnActive : ""}`}
+              onClick={() => setSidebarTab("scoreboard")}
             >
               🏆 Skor Tablosu
             </button>
             <button
               type="button"
-              className={`${styles.sidebarTabBtn} ${sidebarTab === 'chat' ? styles.sidebarTabBtnActive : ''}`}
+              className={`${styles.sidebarTabBtn} ${sidebarTab === "chat" ? styles.sidebarTabBtnActive : ""}`}
               onClick={() => {
-                setSidebarTab('chat');
+                setSidebarTab("chat");
                 setUnreadChatCount(0);
               }}
             >
               💬 Sohbet
-              {unreadChatCount > 0 && sidebarTab !== 'chat' && (
+              {unreadChatCount > 0 && sidebarTab !== "chat" && (
                 <span className={styles.unreadBadge}>{unreadChatCount}</span>
               )}
             </button>
           </div>
 
-          {sidebarTab === 'scoreboard' ? (
+          {sidebarTab === "scoreboard" ? (
             <RoomScoreboard
               room={room}
               currentUserId={effectiveUserId}
               onKickParticipant={handleKickParticipant}
-              isCurrentUserGuessing={!isGuessLocked && !feedback?.isSuccess && !isSongRevealed && !isGameOver}
+              isCurrentUserGuessing={
+                !isGuessLocked &&
+                !feedback?.isSuccess &&
+                !isSongRevealed &&
+                !isGameOver
+              }
               currentUserEarnedPoints={lastEarnedPoints}
             />
           ) : (
             <RoomChat
               roomCode={room.code}
-              currentUserId={effectiveUserId || ''}
+              currentUserId={effectiveUserId || ""}
               currentUserName={authService.getSession().user?.name}
               currentUserAvatarUrl={authService.getSession().user?.avatarUrl}
               isHost={room.hostId === effectiveUserId}
-              height="480px"
+              height="500px"
             />
           )}
         </div>
       )}
 
       {/* Oyun Bittiğinde Katılımcı Puan Tablosu ve Sonuç Ekranı */}
-      {(isGameOver || room?.status === 'finished') && room && (
+      {(isGameOver || room?.status === "finished") && room && (
         <RoomGameOverModal
           room={room}
           currentUserId={effectiveUserId}

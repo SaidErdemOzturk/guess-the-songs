@@ -1,7 +1,10 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { messageService, isDuplicateChatMessage } from '@/services/api/messageService';
-import type { ChatMessage } from '@/types/chat';
-import styles from './RoomChat.module.css';
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import {
+  messageService,
+  isDuplicateChatMessage,
+} from "@/services/api/messageService";
+import type { ChatMessage } from "@/types/chat";
+import styles from "./RoomChat.module.css";
 
 interface RoomChatProps {
   roomCode: string;
@@ -13,32 +16,39 @@ interface RoomChatProps {
   onUnreadCountChange?: (count: number) => void;
 }
 
-const QUICK_TAGS = ['👋 Selam', '🔥 Çok iyi!', '🎵 Biliyorum!', '🤔 Zor oldu', '⚡ Hızlı olun!'];
+const QUICK_TAGS = [
+  "👋 Selam",
+  "🔥 Çok iyi!",
+  "🎵 Biliyorum!",
+  "🤔 Zor oldu",
+  "⚡ Hızlı olun!",
+];
 
 export const RoomChat: React.FC<RoomChatProps> = ({
   roomCode,
   currentUserId,
-  currentUserName = 'Oyuncu',
+  currentUserName = "Oyuncu",
   currentUserAvatarUrl,
   isHost = false,
   height,
   onUnreadCountChange,
 }) => {
   const [messages, setMessages] = useState<ChatMessage[]>(() =>
-    messageService.getCachedMessages(roomCode)
+    messageService.getCachedMessages(roomCode),
   );
-  const [inputText, setInputText] = useState('');
+  const [inputText, setInputText] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [showScrollDown, setShowScrollDown] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const listContainerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const isAutoScrollRef = useRef(true);
 
   const scrollToBottom = useCallback((smooth = true) => {
     if (messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({
-        behavior: smooth ? 'smooth' : 'auto',
+        behavior: smooth ? "smooth" : "auto",
       });
     }
   }, []);
@@ -56,7 +66,8 @@ export const RoomChat: React.FC<RoomChatProps> = ({
           prev.forEach((m) => map.set(m.id, m));
           fetched.forEach((m) => map.set(m.id, m));
           const sorted = Array.from(map.values()).sort(
-            (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+            (a, b) =>
+              new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
           );
           return sorted;
         });
@@ -65,22 +76,25 @@ export const RoomChat: React.FC<RoomChatProps> = ({
     });
 
     // 2. Canlı WebSocket ve sekme aboneliği
-    const unsubscribe = messageService.subscribeToMessages(roomCode, (newMsg) => {
-      if (!isMounted) return;
+    const unsubscribe = messageService.subscribeToMessages(
+      roomCode,
+      (newMsg) => {
+        if (!isMounted) return;
 
-      setMessages((prev) => {
-        if (isDuplicateChatMessage(prev, newMsg)) {
-          return prev;
+        setMessages((prev) => {
+          if (isDuplicateChatMessage(prev, newMsg)) {
+            return prev;
+          }
+          return [...prev, newMsg];
+        });
+
+        if (isAutoScrollRef.current) {
+          setTimeout(() => scrollToBottom(true), 50);
+        } else {
+          setShowScrollDown(true);
         }
-        return [...prev, newMsg];
-      });
-
-      if (isAutoScrollRef.current) {
-        setTimeout(() => scrollToBottom(true), 50);
-      } else {
-        setShowScrollDown(true);
-      }
-    });
+      },
+    );
 
     return () => {
       isMounted = false;
@@ -106,7 +120,8 @@ export const RoomChat: React.FC<RoomChatProps> = ({
 
     try {
       setIsSending(true);
-      setInputText('');
+      setInputText("");
+      inputRef.current?.focus();
 
       const sent = await messageService.sendMessage({
         roomCode,
@@ -125,14 +140,15 @@ export const RoomChat: React.FC<RoomChatProps> = ({
       isAutoScrollRef.current = true;
       setTimeout(() => scrollToBottom(true), 30);
     } catch (err) {
-      console.error('[RoomChat] Failed to send message:', err);
+      console.error("[RoomChat] Failed to send message:", err);
     } finally {
       setIsSending(false);
+      inputRef.current?.focus();
     }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSendMessage();
     }
@@ -140,7 +156,9 @@ export const RoomChat: React.FC<RoomChatProps> = ({
 
   const handleClearChat = async () => {
     if (!isHost) return;
-    const confirmed = window.confirm('Odadaki tüm mesaj geçmişini temizlemek istediğinize emin misiniz?');
+    const confirmed = window.confirm(
+      "Odadaki tüm mesaj geçmişini temizlemek istediğinize emin misiniz?",
+    );
     if (!confirmed) return;
 
     await messageService.clearMessages(roomCode, currentUserId);
@@ -148,19 +166,24 @@ export const RoomChat: React.FC<RoomChatProps> = ({
   };
 
   const formatTime = (isoString?: string) => {
-    if (!isoString) return '';
+    if (!isoString) return "";
     try {
       const date = new Date(isoString);
-      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      return date.toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
     } catch {
-      return '';
+      return "";
     }
   };
 
   return (
     <div
       className={styles.chatContainer}
-      style={height ? { height, maxHeight: height } : undefined}
+      style={
+        height ? { height, maxHeight: height, minHeight: height } : undefined
+      }
     >
       {/* Üst Başlık */}
       <div className={styles.chatHeader}>
@@ -220,7 +243,7 @@ export const RoomChat: React.FC<RoomChatProps> = ({
                       className={styles.avatarImg}
                     />
                   ) : (
-                    <span>{(msg.userName || 'P').charAt(0).toUpperCase()}</span>
+                    <span>{(msg.userName || "P").charAt(0).toUpperCase()}</span>
                   )}
                 </div>
 
@@ -228,7 +251,7 @@ export const RoomChat: React.FC<RoomChatProps> = ({
                 <div className={styles.bubbleContainer}>
                   <div className={styles.messageMeta}>
                     <span className={styles.senderName}>
-                      {isOwn ? 'Sen' : msg.userName}
+                      {isOwn ? "Sen" : msg.userName}
                     </span>
                     {msg.isHost && (
                       <span className={styles.senderHostBadge}>👑 Kurucu</span>
@@ -291,14 +314,14 @@ export const RoomChat: React.FC<RoomChatProps> = ({
         }}
       >
         <input
+          ref={inputRef}
           type="text"
           className={styles.textInput}
-          placeholder="Mesajını yaz... (Enter)"
+          placeholder="Mesajını yaz..."
           value={inputText}
           maxLength={300}
           onChange={(e) => setInputText(e.target.value)}
           onKeyDown={handleKeyDown}
-          disabled={isSending}
         />
         <button
           type="submit"

@@ -190,26 +190,6 @@
   gap: 0.4rem;
 }
 
-.importBtn {
-  background: rgba(99, 102, 241, 0.18);
-  border: 1px solid rgba(99, 102, 241, 0.4);
-  color: #a5b4fc;
-  padding: 0.35rem 0.85rem;
-  border-radius: 0.5rem;
-  font-size: 0.75rem;
-  font-weight: 700;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  transition: all 150ms ease;
-}
-
-.importBtn:hover {
-  background: rgba(99, 102, 241, 0.35);
-  color: #ffffff;
-}
-
 .songList {
   list-style: none;
   padding: 0;
@@ -337,4 +317,220 @@
 .youtubeLink:hover {
   color: #ef4444;
   text-decoration: underline;
+}
+
+/* Oyun Başlatma Kartı & Mod Seçimi */
+.gameStartCard {
+  background: linear-gradient(135deg, rgba(30, 27, 75, 0.7) 0%, rgba(15, 23, 42, 0.85) 100%);
+  border: 1px solid rgba(139, 92, 246, 0.35);
+  border-radius: 1rem;
+  padding: 1.15rem;
+  margin-bottom: 1.25rem;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  animation: fadeInCard 0.2s ease-out;
+}
+
+@keyframes fadeInCard {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.gameStartHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.gameStartTitle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #f3f4f6;
+}
+
+.gameStartTitle i {
+  color: #a855f7;
+  font-size: 1.15rem;
+}
+
+.gameStartBadge {
+  background: rgba(168, 85, 247, 0.2);
+  border: 1px solid rgba(168, 85, 247, 0.4);
+  color: #d8b4fe;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.2rem 0.6rem;
+  border-radius: 9999px;
+}
+
+.gameStartNotice {
+  margin: 0;
+  font-size: 0.75rem;
+  color: #94a3b8;
+  line-height: 1.45;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+}
+
+.gameStartNotice i {
+  color: #38bdf8;
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.modeSection {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.modeSectionLabel {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #cbd5e1;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.modeGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.5rem;
+}
+
+@media (max-width: 640px) {
+  .modeGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.modeCard {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0.65rem;
+  padding: 0.6rem 0.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  cursor: pointer;
+  transition: all 150ms ease;
+  color: #94a3b8;
+  text-align: center;
+}
+
+.modeCard:hover {
+  background: rgba(30, 41, 59, 0.8);
+  border-color: rgba(168, 85, 247, 0.35);
+  color: #f1f5f9;
+}
+
+.modeCardActive {
+  background: linear-gradient(135deg, rgba(147, 51, 234, 0.25) 0%, rgba(79, 70, 229, 0.25) 100%);
+  border-color: #a855f7;
+  color: #ffffff;
+  box-shadow: 0 0 12px rgba(168, 85, 247, 0.3);
+}
+
+.modeCardHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+
+.modeCardActive .modeCardHeader i {
+  color: #ec4899;
+}
+
+.modeCardTitle {
+  font-weight: 700;
+}
+
+.modeCardDesc {
+  font-size: 0.6875rem;
+  opacity: 0.75;
+}
+
+.customSliderBox {
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px dashed rgba(168, 85, 247, 0.3);
+  border-radius: 0.6rem;
+  padding: 0.5rem 0.85rem;
+  margin-top: 0.25rem;
+}
+
+.customSliderRow {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.sliderLabel {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #cbd5e1;
+  white-space: nowrap;
+}
+
+.rangeInput {
+  flex: 1;
+  accent-color: #a855f7;
+  cursor: pointer;
+}
+
+.sliderValue {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: #d8b4fe;
+  min-width: 4rem;
+  text-align: right;
+}
+
+.gameStartActions {
+  display: flex;
+  margin-top: 0.25rem;
+}
+
+.startGameBtn {
+  width: 100%;
+  padding: 0.75rem 1.25rem;
+  background: linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%);
+  color: #ffffff;
+  font-weight: 800;
+  font-size: 0.9375rem;
+  border: none;
+  border-radius: 0.75rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  transition: all 180ms ease;
+  box-shadow: 0 6px 20px rgba(139, 92, 246, 0.45);
+}
+
+.startGameBtn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(236, 72, 153, 0.55);
+  filter: brightness(1.08);
+}
+
+.startGameBtn:active {
+  transform: translateY(0);
 }

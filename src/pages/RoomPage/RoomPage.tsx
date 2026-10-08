@@ -199,10 +199,11 @@ export const RoomPage: React.FC<RoomPageProps> = ({
       <div className={styles.roomChatArea}>
         <RoomChat
           roomCode={room.code}
-          currentUserId={user?.id || ''}
+          currentUserId={user?.id || ""}
           currentUserName={user?.name}
           currentUserAvatarUrl={user?.avatarUrl}
           isHost={room.hostId === user?.id}
+          height="450px"
         />
       </div>
     </div>

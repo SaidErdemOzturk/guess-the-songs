@@ -9,6 +9,7 @@ interface MainLayoutProps {
   onCreateRoomClick?: () => void;
   onPlaylistViewerClick?: () => void;
   maxWidth?: string;
+  justifyContent?: "center" | "flex-start";
 }
 
 export const MainLayout: React.FC<MainLayoutProps> = ({
@@ -18,6 +19,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   onCreateRoomClick,
   onPlaylistViewerClick,
   maxWidth = "42rem",
+  justifyContent = "flex-start",
 }) => {
   return (
     <div
@@ -81,11 +83,11 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
-          justifyContent: "center",
+          justifyContent,
           width: "100%",
           maxWidth,
           margin: "0 auto",
-          padding: "0 1rem",
+          padding: justifyContent === "center" ? "0 1rem" : "1.5rem 1rem 3rem",
           position: "relative",
         }}
       >
