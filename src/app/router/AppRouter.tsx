@@ -119,7 +119,20 @@ export const AppRouter: React.FC = () => {
   };
 
   const handleStartRoomGame = useCallback((room: Room) => {
-    setActiveRoom(room);
+    const cleanRoom: Room = {
+      ...room,
+      currentRound: 1,
+      currentSong: null,
+      participants: (room.participants || []).map((p) => ({
+        ...p,
+        score: 0,
+        lastPointsEarned: undefined,
+        lastGuessDuration: undefined,
+        lastGuessedRound: undefined,
+        lastGuessedSongId: undefined,
+      })),
+    };
+    setActiveRoom(cleanRoom);
     setSessionParams({
       region: room.settings?.region || 'tr',
       genre: room.settings?.genre || 'all',

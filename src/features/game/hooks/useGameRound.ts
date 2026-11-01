@@ -234,8 +234,24 @@ export function useGameRound(options?: UseGameRoundOptions) {
       }
     }
 
-    if (roomOption.currentRound && roomOption.currentRound > 1) {
+    if (roomOption.currentRound && roomOption.currentRound >= 1) {
       setCurrentStageIndex(Math.max(0, roomOption.currentRound - 1));
+    }
+
+    if (
+      isGameOver &&
+      roomOption.status === 'in_game' &&
+      (roomOption.currentRound || 1) === 1 &&
+      roomOption.participants?.every((p) => (p.score || 0) === 0 && p.lastPointsEarned === undefined)
+    ) {
+      setIsGameOver(false);
+      setScore(0);
+      setCurrentStageIndex(0);
+      setCurrentAttemptIndex(0);
+      setIsGuessLocked(false);
+      setFeedback(null);
+      setLastEarnedPoints(null);
+      usedSongIdsRef.current.clear();
     }
 
     // Ortak şarkı odaya eklendiğinde veya değiştiğinde katılımcının şarkısını anında senkronize et
@@ -292,10 +308,6 @@ export function useGameRound(options?: UseGameRoundOptions) {
       const currentActiveRound = roomOption.currentRound || (currentStageIndex + 1);
       const participant = roomOption.participants.find((p) => String(p.user.id) === String(userId));
       if (participant) {
-        if (participant.score !== undefined && participant.score > 0) {
-          setScore((prev) => Math.max(prev, participant.score));
-        }
-
         // YALNIZCA bu kullanıcı bu spesifik raund ve şarkı için tahmin yapmışsa girişi kilitle!
         const hasGuessedCurrent =
           (participant.lastPointsEarned !== null && participant.lastPointsEarned !== undefined) ||
@@ -303,6 +315,12 @@ export function useGameRound(options?: UseGameRoundOptions) {
           (currentSong && participant.lastGuessedSongId !== undefined && String(participant.lastGuessedSongId) === String(currentSong.id)) ||
           (lastGuessedRoundRef.current === currentActiveRound) ||
           (currentSong && String(lastGuessedSongIdRef.current) === String(currentSong.id));
+
+        if (currentActiveRound === 1 && !hasGuessedCurrent) {
+          setScore(0);
+        } else if (participant.score !== undefined && participant.score > 0) {
+          setScore((prev) => Math.max(prev, participant.score));
+        }
 
         if (hasGuessedCurrent && participant.lastPointsEarned !== null && participant.lastPointsEarned !== undefined) {
           setIsGuessLocked(true);
@@ -488,13 +506,17 @@ export function useGameRound(options?: UseGameRoundOptions) {
       if (roomObj && userId) {
         const participant = roomObj.participants.find((p) => String(p.user.id) === String(userId));
         if (participant) {
-          if (participant.score !== undefined && participant.score > 0) {
-            setScore(participant.score);
-          }
+          const activeRound = roomObj.currentRound || 1;
           const isGuessedThisRound =
             (participant.lastPointsEarned !== null && participant.lastPointsEarned !== undefined) ||
-            (participant.lastGuessedRound !== undefined && participant.lastGuessedRound === (roomObj.currentRound || 1)) ||
+            (participant.lastGuessedRound !== undefined && participant.lastGuessedRound === activeRound) ||
             (initialSong && participant.lastGuessedSongId !== undefined && String(participant.lastGuessedSongId) === String(initialSong.id));
+
+          if ((activeRound > 1 || isGuessedThisRound) && participant.score !== undefined && participant.score > 0) {
+            setScore(participant.score);
+          } else {
+            setScore(0);
+          }
 
           if (isGuessedThisRound && participant.lastPointsEarned !== null && participant.lastPointsEarned !== undefined) {
             setIsGuessLocked(true);

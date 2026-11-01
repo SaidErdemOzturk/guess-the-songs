@@ -134,6 +134,16 @@ export const RoomPage: React.FC<RoomPageProps> = ({
       const updated: Room = {
         ...room,
         status: "in_game",
+        currentRound: 1,
+        currentSong: null,
+        participants: room.participants.map((p) => ({
+          ...p,
+          score: 0,
+          lastPointsEarned: undefined,
+          lastGuessDuration: undefined,
+          lastGuessedRound: undefined,
+          lastGuessedSongId: undefined,
+        })),
       };
       setRoom(updated);
       // Backend ve tüm WebSocket abonelerine oyunun başladığını ('in_game') bildir

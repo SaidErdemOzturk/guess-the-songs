@@ -158,13 +158,24 @@ export function normalizeRoom(data: unknown): Room | null {
       createdAt: p.joinedAt || new Date().toISOString(),
     };
 
+    const rawEarned = p.lastPointsEarned ?? p.LastPointsEarned;
+    const normalizedEarned =
+      rawEarned !== undefined && rawEarned !== null && Number(rawEarned) >= 0
+        ? Number(rawEarned)
+        : undefined;
+    const rawDuration = p.lastGuessDuration ?? p.LastGuessDuration;
+    const normalizedDuration =
+      normalizedEarned !== undefined && rawDuration !== undefined && rawDuration !== null
+        ? Number(rawDuration)
+        : undefined;
+
     return {
       user,
       isHost: Boolean(p.isHost),
       isReady: Boolean(p.isReady),
-      score: Number(p.score || 0),
-      lastPointsEarned: p.lastPointsEarned ?? p.LastPointsEarned,
-      lastGuessDuration: p.lastGuessDuration ?? p.LastGuessDuration,
+      score: Math.max(0, Number(p.score || 0)),
+      lastPointsEarned: normalizedEarned,
+      lastGuessDuration: normalizedDuration,
       lastGuessedRound: p.lastGuessedRound ?? p.LastGuessedRound,
       lastGuessedSongId: p.lastGuessedSongId ?? p.LastGuessedSongId,
       joinedAt: p.joinedAt || new Date().toISOString(),
@@ -535,12 +546,16 @@ export const roomService = {
 
               if (current) {
                 const normalizedSong = normalizeSong(songPayload.song) || songPayload.song;
+                const incomingRound = songPayload.round || current.currentRound || 1;
                 current.currentSong = normalizedSong;
-                current.currentRound = songPayload.round || current.currentRound || 1;
+                current.currentRound = incomingRound;
                 current.currentRoundStartedAt = startedAt;
                 current.currentRoundEndsAt = endsAt;
                 current.guessTimeLimitMinutes = baseMinutes;
                 current.participants.forEach((p) => {
+                  if (incomingRound === 1) {
+                    p.score = 0;
+                  }
                   p.lastPointsEarned = undefined;
                   p.lastGuessDuration = undefined;
                   p.lastGuessedRound = undefined;
@@ -599,9 +614,13 @@ export const roomService = {
                   (typeof statusPayload === 'object' && statusPayload?.currentRoundEndsAt) ||
                   new Date(now + baseMinutes * 60 * 1000).toISOString();
                 current.currentRound = 1;
+                current.currentSong = null;
                 current.participants.forEach((p) => {
+                  p.score = 0;
                   p.lastPointsEarned = undefined;
                   p.lastGuessDuration = undefined;
+                  p.lastGuessedRound = undefined;
+                  p.lastGuessedSongId = undefined;
                 });
               } else if (newStatus === 'waiting' || newStatus === 'finished') {
                 current.currentSong = null;
@@ -611,6 +630,8 @@ export const roomService = {
                 current.participants.forEach((p) => {
                   p.lastPointsEarned = undefined;
                   p.lastGuessDuration = undefined;
+                  p.lastGuessedRound = undefined;
+                  p.lastGuessedSongId = undefined;
                 });
               }
               rooms[cleanCode] = current;
@@ -719,7 +740,31 @@ export const roomService = {
 
               // Skor güncellemesinde veya oda güncellemesinde katılımcıların tahmin durumlarını koru
               if (prevRoom?.participants) {
+                const isResetNewGame =
+                  msg.type !== 'SCORE_UPDATED' &&
+                  prevRoom.status === 'in_game' &&
+                  (prevRoom.currentRound || 1) === 1 &&
+                  prevRoom.participants.every(
+                    (ep) => (ep.score || 0) === 0 && ep.lastPointsEarned === undefined
+                  );
+
+                const isIncomingFreshRoundOne =
+                  (updatedRoom.currentRound || 1) === 1 &&
+                  updatedRoom.participants.every(
+                    (up) => (up.score || 0) === 0 && up.lastPointsEarned === undefined
+                  );
+
                 updatedRoom.participants = updatedRoom.participants.map((p) => {
+                  if (isResetNewGame || isIncomingFreshRoundOne) {
+                    return {
+                      ...p,
+                      score: 0,
+                      lastPointsEarned: undefined,
+                      lastGuessDuration: undefined,
+                      lastGuessedRound: undefined,
+                      lastGuessedSongId: undefined,
+                    };
+                  }
                   const prevP = prevRoom.participants.find((ep) => String(ep.user.id) === String(p.user.id));
                   return {
                     ...p,
@@ -881,6 +926,24 @@ export const roomService = {
 
       const updatedRaw = unwrapData<Room | null>(response);
       const updatedRoom = updatedRaw ? normalizeRoom(updatedRaw) : null;
+
+      // Eğer yeni oyunun 1. turu başlıyorsa ve sunucuda önceki oyundan kalan puanlar varsa onları da sıfırla
+      if (round === 1 && updatedRoom?.participants) {
+        const staleParticipants = updatedRoom.participants.filter((p) => (p.score || 0) > 0);
+        if (staleParticipants.length > 0) {
+          void Promise.allSettled(
+            staleParticipants.map((p) =>
+              apiClient.post(ENDPOINTS.ROOMS.UPDATE_SCORE, {
+                roomCode: cleanCode,
+                userId: p.user.id,
+                pointsEarned: -(p.score || 0),
+                duration: 0,
+              })
+            )
+          );
+        }
+      }
+
       const targetRoom = updatedRoom && updatedRoom.code ? updatedRoom : (room || null);
       if (targetRoom) {
         targetRoom.currentSong = song;
@@ -889,6 +952,9 @@ export const roomService = {
         targetRoom.currentRoundEndsAt = currentRoundEndsAt;
         targetRoom.guessTimeLimitMinutes = baseMinutes;
         targetRoom.participants.forEach((p) => {
+          if (round === 1) {
+            p.score = 0;
+          }
           p.lastPointsEarned = undefined;
           p.lastGuessDuration = undefined;
           p.lastGuessedRound = undefined;
@@ -924,6 +990,9 @@ export const roomService = {
       room.currentRoundEndsAt = currentRoundEndsAt;
       room.guessTimeLimitMinutes = baseMinutes;
       room.participants.forEach((p) => {
+        if (round === 1) {
+          p.score = 0;
+        }
         p.lastPointsEarned = undefined;
         p.lastGuessDuration = undefined;
         p.lastGuessedRound = undefined;
@@ -1079,10 +1148,33 @@ export const roomService = {
           // Hem backend'den dönen güncel puanları hem de henüz REST'e yansımamış yerel puanları koru!
           const activeRound = room.currentRound || existing.currentRound || 1;
           const activeSongId = room.currentSong?.id || existing.currentSong?.id;
+          const isExistingFreshNewGame =
+            existing.status === 'in_game' &&
+            activeRound === 1 &&
+            existing.participants?.every(
+              (ep) => (ep.score || 0) === 0 && ep.lastPointsEarned === undefined
+            );
 
           room.participants = room.participants.map((p) => {
+            if (isExistingFreshNewGame) {
+              return {
+                ...p,
+                score: 0,
+                lastPointsEarned: undefined,
+                lastGuessDuration: undefined,
+                lastGuessedRound: undefined,
+                lastGuessedSongId: undefined,
+              };
+            }
+
             const existingP = existing.participants?.find((ep) => String(ep.user.id) === String(p.user.id));
-            const bestScore = Math.max(p.score || 0, existingP?.score || 0);
+            const hasLocalCurrentRoundScore =
+              existingP?.lastGuessedRound === activeRound &&
+              existingP?.lastPointsEarned !== undefined &&
+              existingP?.lastPointsEarned !== null;
+            const bestScore = hasLocalCurrentRoundScore
+              ? Math.max(p.score || 0, existingP?.score || 0)
+              : (p.score ?? existingP?.score ?? 0);
 
             // Backend'den gelen veya yerelde kaydedilmiş en güncel puanı al
             const earned = p.lastPointsEarned !== undefined && p.lastPointsEarned !== null
@@ -1390,9 +1482,13 @@ export const roomService = {
         current.currentRoundStartedAt = currentRoundStartedAt;
         current.currentRoundEndsAt = currentRoundEndsAt;
         current.currentRound = 1;
+        current.currentSong = null;
         current.participants.forEach((p) => {
+          p.score = 0;
           p.lastPointsEarned = undefined;
           p.lastGuessDuration = undefined;
+          p.lastGuessedRound = undefined;
+          p.lastGuessedSongId = undefined;
         });
       } else if (status === 'waiting' || status === 'finished') {
         current.currentSong = null;
@@ -1402,6 +1498,8 @@ export const roomService = {
         current.participants.forEach((p) => {
           p.lastPointsEarned = undefined;
           p.lastGuessDuration = undefined;
+          p.lastGuessedRound = undefined;
+          p.lastGuessedSongId = undefined;
         });
       }
       rooms[cleanCode] = current;
