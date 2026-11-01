@@ -926,24 +926,6 @@ export const roomService = {
 
       const updatedRaw = unwrapData<Room | null>(response);
       const updatedRoom = updatedRaw ? normalizeRoom(updatedRaw) : null;
-
-      // Eğer yeni oyunun 1. turu başlıyorsa ve sunucuda önceki oyundan kalan puanlar varsa onları da sıfırla
-      if (round === 1 && updatedRoom?.participants) {
-        const staleParticipants = updatedRoom.participants.filter((p) => (p.score || 0) > 0);
-        if (staleParticipants.length > 0) {
-          void Promise.allSettled(
-            staleParticipants.map((p) =>
-              apiClient.post(ENDPOINTS.ROOMS.UPDATE_SCORE, {
-                roomCode: cleanCode,
-                userId: p.user.id,
-                pointsEarned: -(p.score || 0),
-                duration: 0,
-              })
-            )
-          );
-        }
-      }
-
       const targetRoom = updatedRoom && updatedRoom.code ? updatedRoom : (room || null);
       if (targetRoom) {
         targetRoom.currentSong = song;
