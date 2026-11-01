@@ -7,13 +7,14 @@
 html, body {
   height: 100%;
   width: 100%;
+  background-color: var(--color-bg-base, #0b0f19);
 }
 
 body {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background-color: var(--color-bg-primary);
+  background-color: var(--color-bg-base, #0b0f19);
   color: var(--color-text-primary);
   font-family: var(--font-family-base);
   overflow-x: hidden;

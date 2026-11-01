@@ -6,8 +6,10 @@ body {
   background-color: var(--color-bg-base);
   color: var(--color-text-primary);
   min-height: 100vh;
+  min-height: 100dvh;
   overflow-x: hidden;
   user-select: none;
+  -webkit-user-select: none;
 }
 
 .font-mono-num {

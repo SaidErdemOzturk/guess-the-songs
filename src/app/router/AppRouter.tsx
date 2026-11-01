@@ -1,15 +1,31 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useState } from 'react';
 import { MainLayout } from '@/layouts/MainLayout';
 import { HomePage } from '@/pages/HomePage/HomePage';
-import { GamePage } from '@/pages/GamePage/GamePage';
-import { RoomGamePage } from '@/pages/RoomGamePage/RoomGamePage';
-import { LoginPage } from '@/pages/LoginPage/LoginPage';
-import { RoomPage } from '@/pages/RoomPage/RoomPage';
-import { CreateRoomModal } from '@/features/room/components/CreateRoomModal/CreateRoomModal';
-import { PlaylistViewer } from '@/components/PlaylistViewer';
+import { LoadingSpinner } from '@/components/feedback/LoadingSpinner';
 import { useAuth } from '@/features/auth/context/AuthContext';
 import type { CreateGameSessionRequest } from '@/types/game';
 import type { Room } from '@/types/room';
+
+const GamePage = lazy(() =>
+  import('@/pages/GamePage/GamePage').then((m) => ({ default: m.GamePage }))
+);
+const RoomGamePage = lazy(() =>
+  import('@/pages/RoomGamePage/RoomGamePage').then((m) => ({ default: m.RoomGamePage }))
+);
+const LoginPage = lazy(() =>
+  import('@/pages/LoginPage/LoginPage').then((m) => ({ default: m.LoginPage }))
+);
+const RoomPage = lazy(() =>
+  import('@/pages/RoomPage/RoomPage').then((m) => ({ default: m.RoomPage }))
+);
+const CreateRoomModal = lazy(() =>
+  import('@/features/room/components/CreateRoomModal/CreateRoomModal').then((m) => ({
+    default: m.CreateRoomModal,
+  }))
+);
+const PlaylistViewer = lazy(() =>
+  import('@/components/PlaylistViewer').then((m) => ({ default: m.PlaylistViewer }))
+);
 
 type ViewMode = 'home' | 'game' | 'login' | 'room';
 
@@ -138,87 +154,98 @@ export const AppRouter: React.FC = () => {
       maxWidth={getContentMaxWidth()}
       justifyContent={viewMode === 'login' ? 'center' : 'flex-start'}
     >
-      {viewMode === 'login' && (
-        <LoginPage
-          pendingInviteRoomCode={pendingInviteCode}
-          onSuccessLogin={handleLoginSuccess}
-          onContinueAsGuest={handleContinueAsGuest}
-        />
-      )}
-
-      {viewMode === 'room' && activeRoomCode && (
-        <RoomPage
-          roomCode={activeRoomCode}
-          onLeaveRoom={handleBackToHome}
-          onStartGame={handleStartRoomGame}
-        />
-      )}
-
-      {viewMode === 'home' && (
-        <HomePage onStartGame={handleStartGame} />
-      )}
-
-      {viewMode === 'game' && !activeRoomCode && (
-        <GamePage
-          sessionParams={sessionParams}
-          onBackToHome={handleBackToHome}
-        />
-      )}
-
-      {viewMode === 'game' && activeRoomCode && (
-        <RoomGamePage
-          sessionParams={sessionParams}
-          roomCode={activeRoomCode}
-          currentUserId={user?.id}
-          initialRoom={activeRoom}
-          onBackToHome={handleBackToHome}
-          onBackToRoom={() => setViewMode('room')}
-        />
-      )}
-
-      {/* Oda Kurma Modalı */}
-      <CreateRoomModal
-        isOpen={isCreateRoomModalOpen}
-        onClose={() => setIsCreateRoomModalOpen(false)}
-        onRoomCreated={handleRoomCreated}
-      />
-
-      {/* Tokensiz Playlist Çekici Modal */}
-      {isPlaylistModalOpen && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.75)',
-            backdropFilter: 'blur(8px)',
-            zIndex: 1000,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '1rem',
-          }}
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setIsPlaylistModalOpen(false);
-          }}
-        >
-          <div style={{ width: '100%', maxWidth: '46rem' }}>
-            <PlaylistViewer
-              onClose={() => setIsPlaylistModalOpen(false)}
-              onStartGame={(params) => {
-                setIsPlaylistModalOpen(false);
-                if (activeRoomCode) {
-                  setActiveRoomCode(null);
-                  const url = new URL(window.location.href);
-                  url.searchParams.delete('room');
-                  url.searchParams.delete('invite');
-                  window.history.replaceState({}, '', url.pathname);
-                }
-                handleStartGame(params);
-              }}
-            />
+      <Suspense
+        fallback={
+          <div style={{ padding: '3rem 0', display: 'flex', justifyContent: 'center' }}>
+            <LoadingSpinner size={36} />
           </div>
-        </div>
-      )}
+        }
+      >
+        {viewMode === 'login' && (
+          <LoginPage
+            pendingInviteRoomCode={pendingInviteCode}
+            onSuccessLogin={handleLoginSuccess}
+            onContinueAsGuest={handleContinueAsGuest}
+          />
+        )}
+
+        {viewMode === 'room' && activeRoomCode && (
+          <RoomPage
+            roomCode={activeRoomCode}
+            onLeaveRoom={handleBackToHome}
+            onStartGame={handleStartRoomGame}
+          />
+        )}
+
+        {viewMode === 'home' && (
+          <HomePage onStartGame={handleStartGame} />
+        )}
+
+        {viewMode === 'game' && !activeRoomCode && (
+          <GamePage
+            sessionParams={sessionParams}
+            onBackToHome={handleBackToHome}
+          />
+        )}
+
+        {viewMode === 'game' && activeRoomCode && (
+          <RoomGamePage
+            sessionParams={sessionParams}
+            roomCode={activeRoomCode}
+            currentUserId={user?.id}
+            initialRoom={activeRoom}
+            onBackToHome={handleBackToHome}
+            onBackToRoom={() => setViewMode('room')}
+          />
+        )}
+
+        {/* Oda Kurma Modalı */}
+        {isCreateRoomModalOpen && (
+          <CreateRoomModal
+            isOpen={isCreateRoomModalOpen}
+            onClose={() => setIsCreateRoomModalOpen(false)}
+            onRoomCreated={handleRoomCreated}
+          />
+        )}
+
+        {/* Tokensiz Playlist Çekici Modal */}
+        {isPlaylistModalOpen && (
+          <div
+            style={{
+              position: 'fixed',
+              inset: 0,
+              backgroundColor: 'rgba(0, 0, 0, 0.75)',
+              backdropFilter: 'blur(8px)',
+              WebkitBackdropFilter: 'blur(8px)',
+              zIndex: 1000,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '1rem',
+            }}
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setIsPlaylistModalOpen(false);
+            }}
+          >
+            <div style={{ width: '100%', maxWidth: '46rem' }}>
+              <PlaylistViewer
+                onClose={() => setIsPlaylistModalOpen(false)}
+                onStartGame={(params) => {
+                  setIsPlaylistModalOpen(false);
+                  if (activeRoomCode) {
+                    setActiveRoomCode(null);
+                    const url = new URL(window.location.href);
+                    url.searchParams.delete('room');
+                    url.searchParams.delete('invite');
+                    window.history.replaceState({}, '', url.pathname);
+                  }
+                  handleStartGame(params);
+                }}
+              />
+            </div>
+          </div>
+        )}
+      </Suspense>
     </MainLayout>
   );
 };
